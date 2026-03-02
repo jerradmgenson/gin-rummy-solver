@@ -1,4 +1,4 @@
-import fastparse._, MultiLineWhitespace._
+import fastparse._, ScriptWhitespace._
 import scala.annotation.alpha
 
 sealed trait SExpr
@@ -17,7 +17,7 @@ def ident[$: P] = P((CharIn("_$\\-") | alphanumeric)
   .!
   .filter(_.toIntOption.isEmpty)
   .map(s => SExpr.Ident(s)))
-def number[$: P]: P[SExpr.Number] = P("-".? ~~ CharIn("0-9").repX(1)).!.map(s => SExpr.Number(s.toInt))
+def number[$: P] = P("-".? ~~ CharIn("0-9").repX(1)).!.map(s => SExpr.Number(s.toInt))
 def wildcard[$: P] = P(("*" ~~/ alphanumeric.?) | (alphanumeric ~~ "*")).!.map(_ match {
   case "*" => SExpr.Wildcard(None, false)
   case s"*$value" => SExpr.Wildcard(Some(value.head), false)
