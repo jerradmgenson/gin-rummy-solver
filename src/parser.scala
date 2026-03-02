@@ -28,4 +28,6 @@ def whitespace[$: P] = P(CharIn(" \t\r\n"))
 
 @main
 def main(code: String) =
-  println(parse(code, p => program(using p)))
+  parse(code, p => program(using p)) match
+    case Parsed.Success(value, _) => println(value)
+    case Parsed.Failure(_, _, extra) => println(extra.trace().longMsg)
