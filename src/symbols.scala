@@ -1,9 +1,6 @@
 import scala.annotation.tailrec
 
-class SymbolTable(
-    stack: List[Map[String, SymbolDescriptor]] = List(
-      Map[String, SymbolDescriptor]()
-    )
+class SymbolTable(stack: List[Map[String, SymbolDescriptor]] = List(defaultStackFrame)
 ):
   def addFrame() = SymbolTable(Map[String, SymbolDescriptor]() :: stack)
   def removeFrame() = SymbolTable(stack.tail)
@@ -43,3 +40,48 @@ enum Suit:
 enum Rank:
   case Ace, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten, Jack, Queen,
     King
+
+val defaultStackFrame = Map(
+  "hand" -> SymbolDescriptor.Func("hand", funcHand)
+)
+
+def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
+  for _ <- Either.cond(sexpr.length == 10 || sexpr.length == 11, (), "Incorrect number of arguments to `hand`.")
+      cards <- traverseCards(sexpr)
+  yield (symbols, None)
+
+def traverseCards(sexprs: Seq[SExpr]) =
+  sexprs.foldLeft[Either[String, Seq[Card]]](Right(Seq.empty)) { (accEither, expr) =>
+    for acc  <- accEither
+        card <- identToCard(expr)
+    yield acc :+ card
+  }
+
+def identToCard(sexpr: SExpr) =
+  for (r, s) <- sexpr match { case SExpr.Ident(s"$r$s") => Right((r, s)) case _ => Left(s"No valid Card can be inferred from $sexpr") }
+      rank   <- strToRank(r)
+      suit   <- strToSuit(s)
+  yield Card(rank, suit)
+
+def strToRank(r: String) = r match
+  case "a" => Right(Rank.Ace)
+  case "2" => Right(Rank.Two)
+  case "3" => Right(Rank.Three)
+  case "4" => Right(Rank.Four)
+  case "5" => Right(Rank.Five)
+  case "6" => Right(Rank.Six)
+  case "7" => Right(Rank.Seven)
+  case "8" => Right(Rank.Eight)
+  case "9" => Right(Rank.Nine)
+  case "t" => Right(Rank.Ten)
+  case "j" => Right(Rank.Jack)
+  case "q" => Right(Rank.Queen)
+  case "k" => Right(Rank.King)
+  case _   => Left(s"$r is not a known rank.")
+
+def strToSuit(s: String) = s match
+  case "s" => Right(Suit.Spades)
+  case "c" => Right(Suit.Clubs)
+  case "d" => Right(Suit.Diamonds)
+  case "h" => Right(Suit.Hearts)
+  case _   => Left(s"$s is not a known suit.")
