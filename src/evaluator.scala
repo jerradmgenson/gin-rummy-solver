@@ -45,20 +45,3 @@ case class GameState(
   knockThreshold: Int,
   remainingStock: Option[Int] = None
 )
-
-case class Hand(
-  c1: Card,
-  c2: Card,
-  c3: Card,
-  c4: Card,
-  c5: Card,
-  c6: Card,
-  c7: Card,
-  c8: Card,
-  c9: Card,
-  c10: Card,
-  c11: Option[Card] = None
-):
-  def toList: List[Card] =
-    val cards = List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
-    cards ++ c11.toList

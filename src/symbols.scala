@@ -4,20 +4,20 @@ class SymbolTable(stack: List[Map[String, SymbolDescriptor]] = List(defaultStack
 ):
   def addFrame() = SymbolTable(Map[String, SymbolDescriptor]() :: stack)
   def removeFrame() = SymbolTable(stack.tail)
-  def get(name: String) =
+  def get(id: String) =
     @tailrec
     def aux(
         stack: List[Map[String, SymbolDescriptor]]
     ): Option[SymbolDescriptor] = stack.headOption match
       case None             => None
-      case Some(stackFrame) => stackFrame.get(name) match
+      case Some(stackFrame) => stackFrame.get(id) match
         case None         => aux(stack.tail)
         case Some(symbol) => Some(symbol)
     aux(stack)
 
-  def set(name: String, symbol: SymbolDescriptor) = stack.headOption match
-    case None             => None
-    case Some(stackFrame) => Some((stackFrame + (name -> symbol)) :: stack.tail)
+  def add(symbol: SymbolDescriptor) = stack.headOption match
+    case None             => Left("No stack frames.")
+    case Some(stackFrame) => Right(SymbolTable((stackFrame + (symbol.id -> symbol)) :: stack.tail))
 
 sealed trait SymbolDescriptor { def id: String }
 object SymbolDescriptor:
@@ -32,6 +32,31 @@ object SymbolDescriptor:
   case class ConfigOption(id: String, value: Int) extends SymbolDescriptor
   case class Game(id: String) extends SymbolDescriptor
   case class Func(id: String, func: (Seq[SExpr], SymbolTable) => Either[String, (SymbolTable, Option[GameState])]) extends SymbolDescriptor
+  case class Hand(
+    id: String,
+    c1: Card,
+    c2: Card,
+    c3: Card,
+    c4: Card,
+    c5: Card,
+    c6: Card,
+    c7: Card,
+    c8: Card,
+    c9: Card,
+    c10: Card,
+    c11: Option[Card] = None
+  ) extends SymbolDescriptor:
+    def toList: List[Card] =
+      val cards = List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
+      cards ++ c11.toList
+
+object Hand:
+  def fromSeq(cards: Seq[Card]) = cards.toList match
+    case List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10) =>
+      Right(SymbolDescriptor.Hand("hand", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10))
+    case List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11) =>
+      Right(SymbolDescriptor.Hand("hand", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, Some(c11)))
+    case l => Left(s"`hand` expects 10 or 11 arguments, not ${l.length}")
 
 case class Card(rank: Rank, suit: Suit)
 enum Suit:
@@ -46,9 +71,10 @@ val defaultStackFrame = Map(
 )
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  for _ <- Either.cond(sexpr.length == 10 || sexpr.length == 11, (), "Incorrect number of arguments to `hand`.")
-      cards <- traverseCards(sexpr)
-  yield (symbols, None)
+  for cards <- traverseCards(sexpr)
+      hand  <- Hand.fromSeq(cards)
+      newSymbols <- symbols.add(hand)
+  yield (newSymbols, None)
 
 def traverseCards(sexprs: Seq[SExpr]) =
   sexprs.foldLeft[Either[String, Seq[Card]]](Right(Seq.empty)) { (accEither, expr) =>
