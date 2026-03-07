@@ -8,11 +8,11 @@ class SymbolTable(stack: List[Map[String, SymbolDescriptor]] = List(defaultStack
     @tailrec
     def aux(
         stack: List[Map[String, SymbolDescriptor]]
-    ): Option[SymbolDescriptor] = stack.headOption match
-      case None             => None
+    ): Either[String, SymbolDescriptor] = stack.headOption match
+      case None             => Left(s"No symbol matching `$id`")
       case Some(stackFrame) => stackFrame.get(id) match
         case None         => aux(stack.tail)
-        case Some(symbol) => Some(symbol)
+        case Some(symbol) => Right(symbol)
     aux(stack)
 
   def add(symbol: SymbolDescriptor) = stack.headOption match
