@@ -71,43 +71,48 @@ val defaultStackFrame = Map(
 )
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  for cards <- traverseCards(sexpr)
-      hand  <- Hand.fromSeq(cards)
+  for idents     <- sexprToIdent(sexpr)
+      cards      <- traverseCards(idents)
+      hand       <- Hand.fromSeq(cards)
       newSymbols <- symbols.add(hand)
   yield (newSymbols, None)
 
-def traverseCards(sexprs: Seq[SExpr]) =
-  sexprs.foldLeft[Either[String, Seq[Card]]](Right(Seq.empty)) { (accEither, expr) =>
+def sexprToIdent(sexpr: Seq[SExpr]) = sexpr match
+  case s: Seq[_] if s.forall(_.isInstanceOf[SExpr.Ident]) => Right(s.asInstanceOf[Seq[SExpr.Ident]])
+  case _ => Left("Type error: expected a sequence of identifiers")
+
+def traverseCards(idents: Seq[SExpr.Ident]) =
+  idents.foldLeft[Either[String, Seq[Card]]](Right(Seq.empty)) { (accEither, ident) =>
     for acc  <- accEither
-        card <- identToCard(expr)
+      card <- identToCard(ident)
     yield acc :+ card
   }
 
-def identToCard(sexpr: SExpr) =
-  for (r, s) <- sexpr match { case SExpr.Ident(s"$r$s") => Right((r, s)) case _ => Left(s"No valid Card can be inferred from $sexpr") }
-      rank   <- strToRank(r)
-      suit   <- strToSuit(s)
+def identToCard(ident: SExpr.Ident) =
+  for (r, s) <- Either.cond(ident.name.length == 2, (ident.name(0), ident.name(1)), s"No valid Card can be inferred from $ident")
+    rank   <- charToRank(r)
+    suit   <- charToSuit(s)
   yield Card(rank, suit)
 
-def strToRank(r: String) = r match
-  case "a" => Right(Rank.Ace)
-  case "2" => Right(Rank.Two)
-  case "3" => Right(Rank.Three)
-  case "4" => Right(Rank.Four)
-  case "5" => Right(Rank.Five)
-  case "6" => Right(Rank.Six)
-  case "7" => Right(Rank.Seven)
-  case "8" => Right(Rank.Eight)
-  case "9" => Right(Rank.Nine)
-  case "t" => Right(Rank.Ten)
-  case "j" => Right(Rank.Jack)
-  case "q" => Right(Rank.Queen)
-  case "k" => Right(Rank.King)
+def charToRank(r: Char) = r match
+  case 'a' => Right(Rank.Ace)
+  case '2' => Right(Rank.Two)
+  case '3' => Right(Rank.Three)
+  case '4' => Right(Rank.Four)
+  case '5' => Right(Rank.Five)
+  case '6' => Right(Rank.Six)
+  case '7' => Right(Rank.Seven)
+  case '8' => Right(Rank.Eight)
+  case '9' => Right(Rank.Nine)
+  case 't' => Right(Rank.Ten)
+  case 'j' => Right(Rank.Jack)
+  case 'q' => Right(Rank.Queen)
+  case 'k' => Right(Rank.King)
   case _   => Left(s"$r is not a known rank.")
 
-def strToSuit(s: String) = s match
-  case "s" => Right(Suit.Spades)
-  case "c" => Right(Suit.Clubs)
-  case "d" => Right(Suit.Diamonds)
-  case "h" => Right(Suit.Hearts)
+def charToSuit(s: Char) = s match
+  case 's' => Right(Suit.Spades)
+  case 'c' => Right(Suit.Clubs)
+  case 'd' => Right(Suit.Diamonds)
+  case 'h' => Right(Suit.Hearts)
   case _   => Left(s"$s is not a known suit.")
