@@ -52,11 +52,12 @@ object SymbolDescriptor:
 
 object Hand:
   def fromSeq(cards: Seq[Card]) = cards.toList match
+    case _ if cards.length != cards.distinct.length => Left("hand may not contain duplicate cards.")
     case List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10) =>
       Right(SymbolDescriptor.Hand("hand", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10))
     case List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11) =>
       Right(SymbolDescriptor.Hand("hand", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, Some(c11)))
-    case l => Left(s"`hand` expects 10 or 11 arguments, not ${l.length}")
+    case l => Left(s"`hand` expects 10 or 11 arguments, not ${l.length}.")
 
 case class Card(rank: Rank, suit: Suit)
 enum Suit:
