@@ -1,5 +1,7 @@
 import scala.annotation.tailrec
 
+// == Symbol Table Definitions ==
+
 class SymbolTable(stack: List[Map[String, SymbolDescriptor]] = List(defaultStackFrame)
 ):
   def addFrame() = SymbolTable(Map[String, SymbolDescriptor]() :: stack)
@@ -9,9 +11,9 @@ class SymbolTable(stack: List[Map[String, SymbolDescriptor]] = List(defaultStack
     def aux(
         stack: List[Map[String, SymbolDescriptor]]
     ): Either[String, SymbolDescriptor] = stack.headOption match
-      case None             => Left(s"No symbol matching `$id`")
+      case None => Left(s"No identifier matching `$id`")
       case Some(stackFrame) => stackFrame.get(id) match
-        case None         => aux(stack.tail)
+        case None => aux(stack.tail)
         case Some(symbol) => Right(symbol)
     aux(stack)
 
@@ -21,12 +23,7 @@ class SymbolTable(stack: List[Map[String, SymbolDescriptor]] = List(defaultStack
 
 sealed trait SymbolDescriptor { def id: String }
 object SymbolDescriptor:
-  case class CardList(
-      id: String,
-      cards: List[Card],
-      wildcards: List[SExpr.Wildcard],
-      templates: List[String]
-  ) extends SymbolDescriptor
+  case class CardList(id: String, cards: List[Card]) extends SymbolDescriptor
   case class Template(id: String, cards: List[Card]) extends SymbolDescriptor
   case class Score(id: String, myScore: Int, theirScore: Int) extends SymbolDescriptor
   case class ConfigOption(id: String, value: Int) extends SymbolDescriptor
@@ -52,11 +49,11 @@ object SymbolDescriptor:
 
 object Hand:
   def fromSeq(cards: Seq[Card]) = cards.toList match
-    case _ if cards.length != cards.distinct.length => Left("hand may not contain duplicate cards.")
+    case _ if !isUnique(cards) => Left("hand may not contain duplicate cards.")
     case List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10) =>
-      Right(SymbolDescriptor.Hand("hand", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10))
+      Right(SymbolDescriptor.Hand("#hand#", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10))
     case List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11) =>
-      Right(SymbolDescriptor.Hand("hand", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, Some(c11)))
+      Right(SymbolDescriptor.Hand("#hand#", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, Some(c11)))
     case l => Left(s"`hand` expects 10 or 11 arguments, not ${l.length}.")
 
 case class Card(rank: Rank, suit: Suit)
@@ -68,8 +65,11 @@ enum Rank:
     King
 
 val defaultStackFrame = Map(
-  "hand" -> SymbolDescriptor.Func("hand", funcHand)
+  "hand"         -> SymbolDescriptor.Func("hand", funcHand),
+  "discard-pile" -> SymbolDescriptor.Func("discard-pile", funcDiscardPile)
 )
+
+// == Built-in Function Definitions ==
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
   for idents     <- sexprToIdent(sexpr)
@@ -77,6 +77,18 @@ def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
       hand       <- Hand.fromSeq(cards)
       newSymbols <- symbols.add(hand)
   yield (newSymbols, None)
+
+def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
+  for _          <- Either.cond(sexpr.length >= 1, (), "`discard-pile` expects at least 1 argument.")
+      idents     <- sexprToIdent(sexpr)
+      cards      <- traverseCards(idents)
+      discards   <- Either.cond(isUnique(cards), cards, s"discard-pile contains duplicate cards: $cards")
+      newSymbols <- symbols.add(SymbolDescriptor.CardList("#discard-pile#", discards.toList))
+  yield (newSymbols, None)
+
+// == Helper Functions ==
+
+def isUnique[T](s: Seq[T]) = s.length == s.distinct.length
 
 def sexprToIdent(sexpr: Seq[SExpr]) = sexpr match
   case s: Seq[_] if s.forall(_.isInstanceOf[SExpr.Ident]) => Right(s.asInstanceOf[Seq[SExpr.Ident]])
@@ -109,11 +121,11 @@ def charToRank(r: Char) = r match
   case 'j' => Right(Rank.Jack)
   case 'q' => Right(Rank.Queen)
   case 'k' => Right(Rank.King)
-  case _   => Left(s"$r is not a known rank.")
+  case _   => Left(s"`$r` is not a valid rank.")
 
 def charToSuit(s: Char) = s match
   case 's' => Right(Suit.Spades)
   case 'c' => Right(Suit.Clubs)
   case 'd' => Right(Suit.Diamonds)
   case 'h' => Right(Suit.Hearts)
-  case _   => Left(s"$s is not a known suit.")
+  case _   => Left(s"`$s` is not a valid suit.")
