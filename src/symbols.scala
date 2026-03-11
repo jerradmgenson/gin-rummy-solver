@@ -1,6 +1,7 @@
 import scala.annotation.tailrec
 
 // == Symbol Table Definitions ==
+// ******************************
 
 class SymbolTable(stack: List[Map[String, SymbolDescriptor]] = List(defaultStackFrame)
 ):
@@ -60,9 +61,38 @@ case class Card(rank: Rank, suit: Suit)
 enum Suit:
   case Spades, Hearts, Diamonds, Clubs
 
+object Suit:
+  def fromChar(s: Char) = suitMap.get(s).toRight(s"Invalid suit: $s")
+
 enum Rank:
   case Ace, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten, Jack, Queen,
     King
+
+object Rank:
+  def fromChar(r: Char) = rankMap.get(r).toRight(s"Invalid rank: $r")
+
+val rankMap = Map(
+  'a' -> Rank.Ace,
+  '2' -> Rank.Two,
+  '3' -> Rank.Three,
+  '4' -> Rank.Four,
+  '5' -> Rank.Five,
+  '6' -> Rank.Six,
+  '7' -> Rank.Seven,
+  '8' -> Rank.Eight,
+  '9' -> Rank.Nine,
+  't' -> Rank.Ten,
+  'j' -> Rank.Jack,
+  'q' -> Rank.Queen,
+  'k' -> Rank.King
+)
+
+val suitMap = Map(
+  's' -> Suit.Spades,
+  'c' -> Suit.Clubs,
+  'd' -> Suit.Diamonds,
+  'h' -> Suit.Hearts
+)
 
 val defaultStackFrame = Map(
   "hand"         -> SymbolDescriptor.Func("hand", funcHand),
@@ -70,6 +100,7 @@ val defaultStackFrame = Map(
 )
 
 // == Built-in Function Definitions ==
+// ***********************************
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
   for idents     <- sexprToIdent(sexpr)
@@ -87,6 +118,7 @@ def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
   yield (newSymbols, None)
 
 // == Helper Functions ==
+// **********************
 
 def isUnique[T](s: Seq[T]) = s.length == s.distinct.length
 
@@ -97,35 +129,29 @@ def sexprToIdent(sexpr: Seq[SExpr]) = sexpr match
 def traverseCards(idents: Seq[SExpr.Ident]) =
   idents.foldLeft[Either[String, Seq[Card]]](Right(Seq.empty)) { (accEither, ident) =>
     for acc  <- accEither
-      card <- identToCard(ident)
+        card <- identToCard(ident)
     yield acc :+ card
   }
 
 def identToCard(ident: SExpr.Ident) =
   for (r, s) <- Either.cond(ident.name.length == 2, (ident.name(0), ident.name(1)), s"No valid Card can be inferred from $ident")
-    rank   <- charToRank(r)
-    suit   <- charToSuit(s)
+    rank     <- Rank.fromChar(r)
+    suit     <- Suit.fromChar(s)
   yield Card(rank, suit)
 
-def charToRank(r: Char) = r match
-  case 'a' => Right(Rank.Ace)
-  case '2' => Right(Rank.Two)
-  case '3' => Right(Rank.Three)
-  case '4' => Right(Rank.Four)
-  case '5' => Right(Rank.Five)
-  case '6' => Right(Rank.Six)
-  case '7' => Right(Rank.Seven)
-  case '8' => Right(Rank.Eight)
-  case '9' => Right(Rank.Nine)
-  case 't' => Right(Rank.Ten)
-  case 'j' => Right(Rank.Jack)
-  case 'q' => Right(Rank.Queen)
-  case 'k' => Right(Rank.King)
-  case _   => Left(s"`$r` is not a valid rank.")
+def expandWildcard(cards: Seq[Card], wildcard: SExpr.Wildcard) = wildcard match
+  case SExpr.Wildcard(None)            => Right(genCards().view.map(_ +: cards).filter(isUnique(_)))
+  case SExpr.Wildcard(Some(invariant)) =>
+    val rank = Rank.fromChar(invariant)
+    val suit = Suit.fromChar(invariant)
+    (rank, suit) match
+      case (Right(r), Left(_)) => Right(genCards(r).view.map(_ +: cards).filter(isUnique(_)))
+      case (Left(_), Right(s)) => Right(genCards(s).view.map(_ +: cards).filter(isUnique(_)))
+      case _                   => Left(s"Invalid invariant: $invariant")
 
-def charToSuit(s: Char) = s match
-  case 's' => Right(Suit.Spades)
-  case 'c' => Right(Suit.Clubs)
-  case 'd' => Right(Suit.Diamonds)
-  case 'h' => Right(Suit.Hearts)
-  case _   => Left(s"`$s` is not a valid suit.")
+def genCards(rank: Rank) = suitMap.values.map(Card(rank, _))
+def genCards(suit: Suit) = rankMap.values.map(Card(_, suit))
+def genCards() =
+  for rank <- rankMap.values
+      suit <- suitMap.values
+  yield Card(rank, suit)
