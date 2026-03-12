@@ -58,6 +58,13 @@ object Hand:
     case l => Left(s"`hand` expects 10 or 11 arguments, not ${l.length}.")
 
 case class Card(rank: Rank, suit: Suit)
+object Card:
+  def fromIdent(ident: SExpr.Ident) =
+    for (r, s) <- Either.cond(ident.name.length == 2, (ident.name(0), ident.name(1)), s"No valid Card can be inferred from $ident")
+      rank     <- Rank.fromChar(r)
+      suit     <- Suit.fromChar(s)
+    yield Card(rank, suit)
+
 enum Suit:
   case Spades, Hearts, Diamonds, Clubs
 
@@ -103,16 +110,19 @@ val defaultStackFrame = Map(
 // ***********************************
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  for idents     <- sexprToIdent(sexpr)
-      cards      <- traverseCards(idents)
-      hand       <- Hand.fromSeq(cards)
-      newSymbols <- symbols.add(hand)
+  for idents        <- sexprToIdent(sexpr.filter(_.isInstanceOf[SExpr.Ident]))
+      cards         <- traverse[SExpr.Ident, Card](Card.fromIdent, idents)
+      wildcards     = sexpr.filter(_.isInstanceOf[SExpr.Wildcard])
+      _             <- Either.cond(cards.length + wildcards.length == sexpr.length, (), "Invalid arguments to hand")
+      expandedCards = wildcards.map(expandWildcard(cards, _))
+      hands         <- Hand.fromSeq(cards)
+      newSymbols    <- symbols.add(hand)
   yield (newSymbols, None)
 
 def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
   for _          <- Either.cond(sexpr.length >= 1, (), "`discard-pile` expects at least 1 argument.")
       idents     <- sexprToIdent(sexpr)
-      cards      <- traverseCards(idents)
+      cards      <- traverse[SExpr.Ident, Card](Card.fromIdent, idents)
       discards   <- Either.cond(isUnique(cards), cards, s"discard-pile contains duplicate cards: $cards")
       newSymbols <- symbols.add(SymbolDescriptor.CardList("#discard-pile#", discards.toList))
   yield (newSymbols, None)
@@ -126,18 +136,13 @@ def sexprToIdent(sexpr: Seq[SExpr]) = sexpr match
   case s: Seq[_] if s.forall(_.isInstanceOf[SExpr.Ident]) => Right(s.asInstanceOf[Seq[SExpr.Ident]])
   case _ => Left("Type error: expected a sequence of identifiers")
 
-def traverseCards(idents: Seq[SExpr.Ident]) =
-  idents.foldLeft[Either[String, Seq[Card]]](Right(Seq.empty)) { (accEither, ident) =>
-    for acc  <- accEither
-        card <- identToCard(ident)
-    yield acc :+ card
+def traverse[T, U](decode: T => Either[String, U], idents: Seq[T]) =
+  idents.foldLeft[Either[String, Seq[U]]](Right(Seq.empty)) { (accEither, ident) =>
+    for acc          <- accEither
+        decodedValue <- decode(ident)
+    yield decodedValue +: acc
   }
-
-def identToCard(ident: SExpr.Ident) =
-  for (r, s) <- Either.cond(ident.name.length == 2, (ident.name(0), ident.name(1)), s"No valid Card can be inferred from $ident")
-    rank     <- Rank.fromChar(r)
-    suit     <- Suit.fromChar(s)
-  yield Card(rank, suit)
+  .map(_.reverse)
 
 def expandWildcard(cards: Seq[Card], wildcard: SExpr.Wildcard) = wildcard match
   case SExpr.Wildcard(None)            => Right(genCards().view.map(_ +: cards).filter(isUnique(_)))
