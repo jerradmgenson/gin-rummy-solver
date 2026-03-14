@@ -32,8 +32,8 @@ class SymbolTable(stack: List[Map[String, Vector[SymbolDescriptor]]] = List(defa
 
 sealed trait SymbolDescriptor { def id: String }
 object SymbolDescriptor:
-  case class CardList(id: String, cards: List[Card]) extends SymbolDescriptor
-  case class Template(id: String, cards: List[Card]) extends SymbolDescriptor
+  case class CardList(id: String, cards: Seq[Card]) extends SymbolDescriptor
+  case class Template(id: String, cards: Seq[Card]) extends SymbolDescriptor
   case class Score(id: String, myScore: Int, theirScore: Int) extends SymbolDescriptor
   case class ConfigOption(id: String, value: Int) extends SymbolDescriptor
   case class Game(id: String) extends SymbolDescriptor
@@ -129,10 +129,13 @@ def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
 
 def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
   val idents = sexpr.collect { case i: SExpr.Ident => i }
-  for _          <- Either.cond(sexpr.length >= 1, (), "`discard-pile` expects at least 1 argument.")
-      cards      <- traverse[SExpr.Ident, Card](Card.fromIdent, idents)
-      discards   <- Either.cond(isUnique(cards), cards, s"discard-pile contains duplicate cards: $cards")
-      newSymbols <- symbols.add(SymbolDescriptor.CardList("#discard-pile#", discards.toList))
+  val wildcards = sexpr.collect { case w: SExpr.Wildcard => w }
+  for _           <- Either.cond(sexpr.length >= 1, (), "`discard-pile` expects at least 1 argument.")
+      cardsPart   <- traverse[SExpr.Ident, Card](Card.fromIdent, idents)
+      discards    <- Either.cond(isUnique(cardsPart), cardsPart, s"discard-pile contains duplicate cards: $cardsPart")
+      cardsFull   <- traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(cardsPart, _), wildcards)
+      discardSyms =  cardsFull.flatten.map(SymbolDescriptor.CardList("#discard-pile#", _))
+      newSymbols  <- symbols.add(discardSyms)
   yield (newSymbols, None)
 
 // == Helper Functions ==
