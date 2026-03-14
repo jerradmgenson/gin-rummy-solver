@@ -3,24 +3,32 @@ import scala.annotation.tailrec
 // == Symbol Table Definitions ==
 // ******************************
 
-class SymbolTable(stack: List[Map[String, SymbolDescriptor]] = List(defaultStackFrame)
+class SymbolTable(stack: List[Map[String, Vector[SymbolDescriptor]]] = List(defaultStackFrame)
 ):
-  def addFrame() = SymbolTable(Map[String, SymbolDescriptor]() :: stack)
+  def addFrame() = SymbolTable(Map[String, Vector[SymbolDescriptor]]() :: stack)
   def removeFrame() = SymbolTable(stack.tail)
   def get(id: String) =
     @tailrec
     def aux(
-        stack: List[Map[String, SymbolDescriptor]]
-    ): Either[String, SymbolDescriptor] = stack.headOption match
+        stack: List[Map[String, Vector[SymbolDescriptor]]]
+    ): Either[String, Vector[SymbolDescriptor]] = stack.headOption match
       case None => Left(s"No identifier matching `$id`")
       case Some(stackFrame) => stackFrame.get(id) match
         case None => aux(stack.tail)
         case Some(symbol) => Right(symbol)
     aux(stack)
 
-  def add(symbol: SymbolDescriptor) = stack.headOption match
-    case None             => Left("No stack frames.")
-    case Some(stackFrame) => Right(SymbolTable((stackFrame + (symbol.id -> symbol)) :: stack.tail))
+  def add(symbol: SymbolDescriptor) =
+    for stackFrame <- stack.headOption.toRight("No stack frames.")
+        symbolCurr =  stackFrame.getOrElse(symbol.id, Vector.empty)
+    yield SymbolTable(stackFrame + (symbol.id -> (symbolCurr :+ symbol)) :: stack.tail)
+
+  def add(symbols: Seq[SymbolDescriptor]) =
+    for stackFrame <- stack.headOption.toRight("No stack frames.")
+        symbolID   <- Either.cond(symbols.length >= 1, symbols(1).id, "symbols must have length >= 1.")
+        _          <- Either.cond(symbols.forall(_.id == symbolID), (), "All symbols must have the same id.")
+        symbolCurr =  stackFrame.getOrElse(symbolID, Vector.empty)
+    yield SymbolTable(stackFrame + (symbolID -> (symbolCurr ++ symbols)) :: stack.tail)
 
 sealed trait SymbolDescriptor { def id: String }
 object SymbolDescriptor:
@@ -102,26 +110,26 @@ val suitMap = Map(
 )
 
 val defaultStackFrame = Map(
-  "hand"         -> SymbolDescriptor.Func("hand", funcHand),
-  "discard-pile" -> SymbolDescriptor.Func("discard-pile", funcDiscardPile)
+  "hand"         -> Vector(SymbolDescriptor.Func("hand", funcHand)),
+  "discard-pile" -> Vector(SymbolDescriptor.Func("discard-pile", funcDiscardPile))
 )
 
 // == Built-in Function Definitions ==
 // ***********************************
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  for idents        <- sexprToIdent(sexpr.filter(_.isInstanceOf[SExpr.Ident]))
-      cards         <- traverse[SExpr.Ident, Card](Card.fromIdent, idents)
-      wildcards     = sexpr.filter(_.isInstanceOf[SExpr.Wildcard])
-      _             <- Either.cond(cards.length + wildcards.length == sexpr.length, (), "Invalid arguments to hand")
-      expandedCards = wildcards.map(expandWildcard(cards, _))
-      hands         <- Hand.fromSeq(cards)
-      newSymbols    <- symbols.add(hand)
+  val idents    = sexpr.collect { case i: SExpr.Ident => i }
+  val wildcards = sexpr.collect { case w: SExpr.Wildcard => w }
+  for _             <- Either.cond(idents.length + wildcards.length == sexpr.length, (), "Invalid arguments to hand")
+      cardsPart     <- traverse[SExpr.Ident, Card](Card.fromIdent, idents)
+      cardsFull     <- traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(cardsPart, _), wildcards)
+      hands         <- traverse[Seq[Card], SymbolDescriptor.Hand](Hand.fromSeq, cardsFull.flatten)
+      newSymbols    <- symbols.add(hands)
   yield (newSymbols, None)
 
 def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
+  val idents = sexpr.collect { case i: SExpr.Ident => i }
   for _          <- Either.cond(sexpr.length >= 1, (), "`discard-pile` expects at least 1 argument.")
-      idents     <- sexprToIdent(sexpr)
       cards      <- traverse[SExpr.Ident, Card](Card.fromIdent, idents)
       discards   <- Either.cond(isUnique(cards), cards, s"discard-pile contains duplicate cards: $cards")
       newSymbols <- symbols.add(SymbolDescriptor.CardList("#discard-pile#", discards.toList))
@@ -132,10 +140,6 @@ def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
 
 def isUnique[T](s: Seq[T]) = s.length == s.distinct.length
 
-def sexprToIdent(sexpr: Seq[SExpr]) = sexpr match
-  case s: Seq[_] if s.forall(_.isInstanceOf[SExpr.Ident]) => Right(s.asInstanceOf[Seq[SExpr.Ident]])
-  case _ => Left("Type error: expected a sequence of identifiers")
-
 def traverse[T, U](decode: T => Either[String, U], idents: Seq[T]) =
   idents.foldLeft[Either[String, Seq[U]]](Right(Seq.empty)) { (accEither, ident) =>
     for acc          <- accEither
@@ -145,13 +149,13 @@ def traverse[T, U](decode: T => Either[String, U], idents: Seq[T]) =
   .map(_.reverse)
 
 def expandWildcard(cards: Seq[Card], wildcard: SExpr.Wildcard) = wildcard match
-  case SExpr.Wildcard(None)            => Right(genCards().view.map(_ +: cards).filter(isUnique(_)))
+  case SExpr.Wildcard(None)            => Right(genCards().view.map(_ +: cards).filter(isUnique(_)).toSeq)
   case SExpr.Wildcard(Some(invariant)) =>
     val rank = Rank.fromChar(invariant)
     val suit = Suit.fromChar(invariant)
     (rank, suit) match
-      case (Right(r), Left(_)) => Right(genCards(r).view.map(_ +: cards).filter(isUnique(_)))
-      case (Left(_), Right(s)) => Right(genCards(s).view.map(_ +: cards).filter(isUnique(_)))
+      case (Right(r), Left(_)) => Right(genCards(r).view.map(_ +: cards).filter(isUnique(_)).toSeq)
+      case (Left(_), Right(s)) => Right(genCards(s).view.map(_ +: cards).filter(isUnique(_)).toSeq)
       case _                   => Left(s"Invalid invariant: $invariant")
 
 def genCards(rank: Rank) = suitMap.values.map(Card(rank, _))
