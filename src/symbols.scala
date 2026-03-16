@@ -56,14 +56,15 @@ object SymbolDescriptor:
       cards ++ c11.toList
 
 object CardList:
-  def apply(id: String, cards: Seq[Card]) = SymbolDescriptor.CardList(id, cards)
-  def apply(id: String, cards: Seq[Card], allowDuplicates: Boolean) =
-    if allowDuplicates || isUnique(cards)
-    then Right(SymbolDescriptor.CardList(id, cards))
-    else Left(s"`$id` may not contain duplicate cards.")
+  def apply(id: String, cards: Seq[Card], allowDuplicates: Boolean = false, minCards: Int = 1) =
+    if !allowDuplicates && !isUnique(cards)
+    then Left(s"`$id` may not contain duplicate cards.")
+    else if cards.length < minCards
+    then Left(s"`$id` expects at least $minCards cards.")
+    else Right(SymbolDescriptor.CardList(id, cards))
 
 object Hand:
-  def fromSeq(cards: Seq[Card]) = cards.toList match
+  def apply(cards: Seq[Card]) = cards.toList match
     case _ if !isUnique(cards) => Left("`hand` may not contain duplicate cards.")
     case List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10) =>
       Right(SymbolDescriptor.Hand("#hand#", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10))
@@ -73,7 +74,7 @@ object Hand:
 
 case class Card(rank: Rank, suit: Suit)
 object Card:
-  def fromIdent(ident: SExpr.Ident) =
+  def apply(ident: SExpr.Ident) =
     for (r, s) <- Either.cond(ident.name.length == 2, (ident.name(0), ident.name(1)), s"No valid Card can be inferred from $ident")
          rank  <- Rank.fromChar(r)
          suit  <- Suit.fromChar(s)
@@ -125,17 +126,13 @@ val defaultStackFrame = Map(
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
   for cards       <- expandCardMacros(sexpr, symbols)
-      hands       <- traverse[Seq[Card], SymbolDescriptor.Hand](Hand.fromSeq, cards)
+      hands       <- traverse[Seq[Card], SymbolDescriptor.Hand](Hand.apply, cards)
       newSymbols  <- symbols.add(hands)
   yield (newSymbols, None)
 
 def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  for _           <- Either.cond(
-                       sexpr.length >= 1,
-                       (),
-                       "`discard-pile` expects at least 1 argument.")
-      cards       <- expandCardMacros(sexpr, symbols)
-      discardSyms <- traverse[Seq[Card], SymbolDescriptor.CardList](CardList("#discard-pile#", _, false), cards)
+  for cards       <- expandCardMacros(sexpr, symbols)
+      discardSyms <- traverse[Seq[Card], SymbolDescriptor.CardList](CardList("#discard-pile#", _), cards)
       newSymbols  <- symbols.add(discardSyms)
   yield (newSymbols, None)
 
@@ -148,7 +145,7 @@ def funcLet(sexpr: Seq[SExpr], symbols: SymbolTable) =
                       (),
                       "`let` expects at least 2 argument.")
       id         =  idents.head.name
-      cards      <- traverse[SExpr.Ident, Card](Card.fromIdent, idents.tail)
+      cards      <- traverse[SExpr.Ident, Card](Card.apply, idents.tail)
       _          <- Either.cond(
                       isUnique(cards),
                       (),
@@ -191,8 +188,8 @@ def expandLet(baseCards: Seq[Card], letCards: Seq[Card]) = letCards.map(_ +: bas
 def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable) =
   val idents    = sexpr.collect { case i: SExpr.Ident => i }
   val wildcards = sexpr.collect { case w: SExpr.Wildcard => w }
-  val baseCards = idents.collect { Card.fromIdent(_) match { case Right(c) => c }}
-  val letIds    = idents.filter(Card.fromIdent(_).isLeft)
+  val baseCards = idents.collect { Card.apply(_) match { case Right(c) => c }}
+  val letIds    = idents.filter(Card.apply(_).isLeft)
   for _             <- Either.cond(
                          baseCards.length + wildcards.length + letIds.length == sexpr.length,
                          (),
