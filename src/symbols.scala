@@ -3,15 +3,18 @@ import scala.annotation.tailrec
 // == Symbol Table Definitions ==
 // ******************************
 
-class SymbolTable(stack: List[Map[String, Vector[SymbolDescriptor]]] = List(defaultStackFrame)
+type Symbol = SymbolDescriptor | Vector[SymbolDescriptor]
+type SymbolStack = List[Map[String, Symbol]]
+
+class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
 ):
   def addFrame() = SymbolTable(Map[String, Vector[SymbolDescriptor]]() :: stack)
   def removeFrame() = SymbolTable(stack.tail)
   def get(id: String) =
     @tailrec
     def aux(
-        stack: List[Map[String, Vector[SymbolDescriptor]]]
-    ): Either[String, Vector[SymbolDescriptor]] = stack.headOption match
+        stack: SymbolStack
+    ): Either[String, Symbol] = stack.headOption match
       case None => Left(s"No identifier matching `$id`")
       case Some(stackFrame) => stackFrame.get(id) match
         case None => aux(stack.tail)
@@ -123,9 +126,9 @@ val suitMap = Map(
 )
 
 val defaultStackFrame = Map(
-  "hand"         -> Vector(SymbolDescriptor.Func("hand", funcHand)),
-  "discard-pile" -> Vector(SymbolDescriptor.Func("discard-pile", funcDiscardPile)),
-  "let"          -> Vector(SymbolDescriptor.Func("let", funcLet))
+  "hand"         -> SymbolDescriptor.Func("hand", funcHand),
+  "discard-pile" -> SymbolDescriptor.Func("discard-pile", funcDiscardPile),
+  "let"          -> SymbolDescriptor.Func("let", funcLet)
 )
 
 // == Built-in Function Definitions ==
@@ -201,10 +204,13 @@ def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable) =
                          baseCards.length + wildcards.length + letIds.length == sexpr.length,
                          (),
                          "Invalid values found in card list.")
-      letSyms       <- traverse[SExpr.Ident, Vector[SymbolDescriptor]](i => symbols.get(i.name), letIds)
-      letCards      <- traverse[SymbolDescriptor, Seq[Card]](
-                         s => s match { case SymbolDescriptor.CardList(_, c) => Right(c) case _ => Left(s"Identifier `${s.id}` is not a card list.") },
-                         letSyms.flatten)
+      letCards      <- traverse[SExpr.Ident, Seq[Card]](i =>
+                         for s <- symbols.get(i.name)
+                             c <- s match
+                                      case SymbolDescriptor.CardList(_, c) => Right(c)
+                                      case _ => Left(s"`${i.name}` is not a card list.")
+                         yield c,
+                         letIds)
       partExpanded  <- traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(baseCards, _), wildcards)
       expandedCards =  partExpanded.flatten.flatMap(bc => letCards.flatMap(lc => expandLet(bc, lc)))
   yield expandedCards

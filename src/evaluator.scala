@@ -27,11 +27,10 @@ def evaluateCall(
   args: Seq[SExpr],
   symbols: SymbolTable
 ): Either[String, (SymbolTable, Option[GameState])] =
-  for vector <- symbols.get(funcName)
-      symbol <- Either.cond(vector.length == 1, vector(0), s"Expected vector length: 1 Found: ${vector.length}")
+  for symbol <- symbols.get(funcName)
       func   <- symbol match
-        case SymbolDescriptor.Func(_, func) => Right(func)
-        case _                              => Left(s"$funcName is not a function.")
+                  case SymbolDescriptor.Func(_, func) => Right(func)
+                  case _                              => Left(s"$funcName is not a function.")
       (newSymbols, newGameState) <- func(args, symbols)
   yield (newSymbols, newGameState)
 
