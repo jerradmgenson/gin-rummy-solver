@@ -20,15 +20,21 @@ class SymbolTable(stack: List[Map[String, Vector[SymbolDescriptor]]] = List(defa
 
   def add(symbol: SymbolDescriptor) =
     for stackFrame <- stack.headOption.toRight("No stack frames.")
-        symbolCurr =  stackFrame.getOrElse(symbol.id, Vector.empty)
-    yield SymbolTable(stackFrame + (symbol.id -> (symbolCurr :+ symbol)) :: stack.tail)
+        _          <- Either.cond(
+                        stackFrame.get(symbol.id).nonEmpty,
+                        (),
+                        s"An identifier with the name `${symbol.id}` already exists.")
+    yield SymbolTable(stackFrame + (symbol.id -> Vector(symbol)) :: stack.tail)
 
   def add(symbols: Seq[SymbolDescriptor]) =
     for stackFrame <- stack.headOption.toRight("No stack frames.")
         symbolID   <- Either.cond(symbols.length >= 1, symbols(1).id, "symbols must have length >= 1.")
         _          <- Either.cond(symbols.forall(_.id == symbolID), (), "All symbols must have the same id.")
-        symbolCurr =  stackFrame.getOrElse(symbolID, Vector.empty)
-    yield SymbolTable(stackFrame + (symbolID -> (symbolCurr ++ symbols)) :: stack.tail)
+        _          <- Either.cond(
+                        stackFrame.get(symbolID).nonEmpty,
+                        (),
+                        s"An identifier with the name `${symbolID}` already exists.")
+    yield SymbolTable(stackFrame + (symbolID -> symbols.toVector) :: stack.tail)
 
 sealed trait SymbolDescriptor { def id: String }
 object SymbolDescriptor:
@@ -118,7 +124,8 @@ val suitMap = Map(
 
 val defaultStackFrame = Map(
   "hand"         -> Vector(SymbolDescriptor.Func("hand", funcHand)),
-  "discard-pile" -> Vector(SymbolDescriptor.Func("discard-pile", funcDiscardPile))
+  "discard-pile" -> Vector(SymbolDescriptor.Func("discard-pile", funcDiscardPile)),
+  "let"          -> Vector(SymbolDescriptor.Func("let", funcLet))
 )
 
 // == Built-in Function Definitions ==
