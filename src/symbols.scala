@@ -124,45 +124,19 @@ val defaultStackFrame = Map(
 // ***********************************
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  val idents    = sexpr.collect { case i: SExpr.Ident => i }
-  val wildcards = sexpr.collect { case w: SExpr.Wildcard => w }
-  val baseCards = idents.collect { Card.fromIdent(_) match { case Right(c) => c }}
-  val letIds    = idents.filter(Card.fromIdent(_).isLeft)
-  for _             <- Either.cond(
-                         baseCards.length + wildcards.length + letIds.length == sexpr.length,
-                         (),
-                         "Invalid arguments to `hand`.")
-      letSyms       <- traverse[SExpr.Ident, Vector[SymbolDescriptor]](i => symbols.get(i.name), letIds)
-      letCards      <- traverse[SymbolDescriptor, Seq[Card]](
-                         s => s match { case SymbolDescriptor.CardList(_, c) => Right(c) case _ => Left(s"Identifier `${s.id}` is not a card list.") },
-                         letSyms.flatten)
-      cardsWithWild <- traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(baseCards, _), wildcards)
-      cardsWithLet  =  cardsWithWild.flatten.flatMap(bc => letCards.flatMap(lc => expandLet(bc, lc)))
-      hands         <- traverse[Seq[Card], SymbolDescriptor.Hand](Hand.fromSeq, cardsWithLet)
-      newSymbols    <- symbols.add(hands)
+  for cards       <- expandCardMacros(sexpr, symbols)
+      hands       <- traverse[Seq[Card], SymbolDescriptor.Hand](Hand.fromSeq, cards)
+      newSymbols  <- symbols.add(hands)
   yield (newSymbols, None)
 
 def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  val idents = sexpr.collect { case i: SExpr.Ident => i }
-  val wildcards = sexpr.collect { case w: SExpr.Wildcard => w }
-  val baseCards = idents.collect { Card.fromIdent(_) match { case Right(c) => c }}
-  val letIds    = idents.filter(Card.fromIdent(_).isLeft)
-  for _             <- Either.cond(
-                         sexpr.length >= 1,
-                         (),
-                         "`discard-pile` expects at least 1 argument.")
-      _             <- Either.cond(
-                        baseCards.length + wildcards.length + letIds.length == sexpr.length,
-                        (),
-                        "Invalid arguments to `discard-pile`.")
-      letSyms       <- traverse[SExpr.Ident, Vector[SymbolDescriptor]](i => symbols.get(i.name), letIds)
-      letCards      <- traverse[SymbolDescriptor, Seq[Card]](
-                         s => s match { case SymbolDescriptor.CardList(_, c) => Right(c) case _ => Left(s"Identifier `${s.id}` is not a card list.") },
-                         letSyms.flatten)
-      cardsWithWild <- traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(baseCards, _), wildcards)
-      cardsWithLet  =  cardsWithWild.flatten.flatMap(bc => letCards.flatMap(lc => expandLet(bc, lc)))
-      discardSyms   <- traverse[Seq[Card], SymbolDescriptor.CardList](CardList("#discard-pile#", _, false), cardsWithLet)
-      newSymbols    <- symbols.add(discardSyms)
+  for _           <- Either.cond(
+                       sexpr.length >= 1,
+                       (),
+                       "`discard-pile` expects at least 1 argument.")
+      cards       <- expandCardMacros(sexpr, symbols)
+      discardSyms <- traverse[Seq[Card], SymbolDescriptor.CardList](CardList("#discard-pile#", _, false), cards)
+      newSymbols  <- symbols.add(discardSyms)
   yield (newSymbols, None)
 
 def funcLet(sexpr: Seq[SExpr], symbols: SymbolTable) =
@@ -213,3 +187,20 @@ def genCards() =
   yield Card(rank, suit)
 
 def expandLet(baseCards: Seq[Card], letCards: Seq[Card]) = letCards.map(_ +: baseCards)
+
+def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable) =
+  val idents    = sexpr.collect { case i: SExpr.Ident => i }
+  val wildcards = sexpr.collect { case w: SExpr.Wildcard => w }
+  val baseCards = idents.collect { Card.fromIdent(_) match { case Right(c) => c }}
+  val letIds    = idents.filter(Card.fromIdent(_).isLeft)
+  for _             <- Either.cond(
+                         baseCards.length + wildcards.length + letIds.length == sexpr.length,
+                         (),
+                         "Invalid values found in card list.")
+      letSyms       <- traverse[SExpr.Ident, Vector[SymbolDescriptor]](i => symbols.get(i.name), letIds)
+      letCards      <- traverse[SymbolDescriptor, Seq[Card]](
+                         s => s match { case SymbolDescriptor.CardList(_, c) => Right(c) case _ => Left(s"Identifier `${s.id}` is not a card list.") },
+                         letSyms.flatten)
+      partExpanded  <- traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(baseCards, _), wildcards)
+      expandedCards =  partExpanded.flatten.flatMap(bc => letCards.flatMap(lc => expandLet(bc, lc)))
+  yield expandedCards
