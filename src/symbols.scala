@@ -80,7 +80,7 @@ object Hand:
 
 case class Card(rank: Rank, suit: Suit)
 object Card:
-  def apply(ident: SExpr.Ident) =
+  def apply(ident: SExpr.Ident): Either[String, Card] =
     for (r, s) <- Either.cond(ident.name.length == 2, (ident.name(0), ident.name(1)), s"No valid Card can be inferred from $ident")
          rank  <- Rank.fromChar(r)
          suit  <- Suit.fromChar(s)
