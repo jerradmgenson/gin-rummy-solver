@@ -27,7 +27,7 @@ def evaluateCall(
   args: Seq[SExpr],
   symbols: SymbolTable
 ): Either[String, (SymbolTable, Option[GameState])] =
-  for symbol <- symbols.get(funcName)
+  for symbol <- symbols.get(funcName, lineno)
       func   <- symbol match
                   case SymbolDescriptor.Func(_, func) => Right(func)
                   case _                              => Left(s"$funcName is not a function.")
