@@ -5,7 +5,7 @@ def evaluateProgram(
   program: Seq[SExpr],
   symbols: SymbolTable = SymbolTable(),
   gameStates: List[GameState] = List.empty
-): Either[String, List[GameState]] = program match
+): Either[CompilerError, List[GameState]] = program match
   case Nil                        => Right(gameStates)
   case SExpr.SList(sexpr) +: tail =>
     evaluateSList(sexpr, symbols) match
@@ -16,7 +16,7 @@ def evaluateProgram(
 def evaluateSList(
   sexpr: Seq[SExpr],
   symbols: SymbolTable
-): Either[String, (SymbolTable, Option[GameState])] =
+): Either[CompilerError, (SymbolTable, Option[GameState])] =
   println(s"S-expression list: $sexpr")
   sexpr match
     case SExpr.Ident(name) +: tail => evaluateCall(name, tail, symbols)
@@ -26,8 +26,8 @@ def evaluateCall(
   funcName: String,
   args: Seq[SExpr],
   symbols: SymbolTable
-): Either[String, (SymbolTable, Option[GameState])] =
-  for symbol <- symbols.get(funcName, lineno)
+): Either[CompilerError, (SymbolTable, GameState)] =
+  for symbol <- symbols.get(funcName)
       func   <- symbol match
                   case SymbolDescriptor.Func(_, func) => Right(func)
                   case _                              => Left(s"$funcName is not a function.")
