@@ -31,10 +31,10 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
 
   def add(symbols: Seq[SymbolDescriptor]): Either[CompilerError, SymbolTable] =
     for stackFrame <- stack.headOption.toRight(CompilerError.InternalError("No stack frames."))
-        symbolID   <- Either.cond(symbols.length >= 1, symbols(1).id, CompilerError.InternalError("symbols must have length >= 1."))
+        symbolID   <- Either.cond(symbols.length >= 1, symbols(0).id, CompilerError.InternalError("symbols must have length >= 1."))
         _          <- Either.cond(symbols.forall(_.id == symbolID), (), CompilerError.InternalError("All symbols must have the same id."))
         _          <- Either.cond(
-                        stackFrame.get(symbolID).nonEmpty,
+                        stackFrame.get(symbolID).isEmpty,
                         (),
                         CompilerError.RedefinitionError(symbolID))
     yield SymbolTable(stackFrame + (symbolID -> symbols.toVector) :: stack.tail)
@@ -216,4 +216,4 @@ def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerEr
                          letIds)
       partExpanded  <- traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(baseCards, _), wildcards)
       expandedCards =  partExpanded.flatten.flatMap(bc => letCards.flatMap(lc => expandLet(bc, lc)))
-  yield expandedCards
+  yield if wildcards.length + letIds.length > 0 then expandedCards else Seq(baseCards)
