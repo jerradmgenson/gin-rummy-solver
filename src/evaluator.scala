@@ -11,7 +11,7 @@ def evaluateProgram(
     evaluateSList(sexpr, symbols) match
       case Right(newSymbols, newGameState) => evaluateProgram(tail, newSymbols, gameStates ++ newGameState)
       case Left(s) => Left(s)
-  case _ => Left(s"Expected S-expression list but found ${program.head}")
+  case _ => Left(CompilerError.SyntaxError(s"Expected S-expression list but found ${program.head}"))
 
 def evaluateSList(
   sexpr: Seq[SExpr],
@@ -20,17 +20,17 @@ def evaluateSList(
   println(s"S-expression list: $sexpr")
   sexpr match
     case SExpr.Ident(name) +: tail => evaluateCall(name, tail, symbols)
-    case head +: _                 => Left(s"Function calls must begin with an identifier, not $head")
+    case head +: _                 => Left(CompilerError.SyntaxError(s"Function calls must begin with an identifier, not $head"))
 
 def evaluateCall(
   funcName: String,
   args: Seq[SExpr],
   symbols: SymbolTable
-): Either[CompilerError, (SymbolTable, GameState)] =
+): Either[CompilerError, (SymbolTable, Option[GameState])] =
   for symbol <- symbols.get(funcName)
       func   <- symbol match
                   case SymbolDescriptor.Func(_, func) => Right(func)
-                  case _                              => Left(s"$funcName is not a function.")
+                  case _                              => Left(CompilerError.ValueError(s"$funcName is not a function."))
       (newSymbols, newGameState) <- func(args, symbols)
   yield (newSymbols, newGameState)
 

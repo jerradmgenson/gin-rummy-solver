@@ -83,7 +83,7 @@ object Hand:
 
 case class Card(rank: Rank, suit: Suit)
 object Card:
-  def apply(ident: SExpr.Ident): Either[CompilerError.ValueError, Card] =
+  def apply(ident: SExpr.Ident): Either[CompilerError, Card] =
     for (r, s) <- Either.cond(
                     ident.name.length == 2,
                     (ident.name(0), ident.name(1)),
