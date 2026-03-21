@@ -19,15 +19,18 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
       case Some(stackFrame) => stackFrame.get(id) match
         case None => aux(stack.tail)
         case Some(symbol) => Right(symbol)
-    aux(stack)
+    val symbol = aux(stack)
+    println(s"Retrieved symbol: $symbol")
+    symbol
 
   def add(symbol: SymbolDescriptor): Either[CompilerError, SymbolTable] =
     for stackFrame <- stack.headOption.toRight(CompilerError.InternalError("No stack frames."))
         _          <- Either.cond(
-                        stackFrame.get(symbol.id).nonEmpty,
+                        stackFrame.get(symbol.id).isEmpty,
                         (),
                         CompilerError.RedefinitionError(symbol.id))
-    yield SymbolTable(stackFrame + (symbol.id -> Vector(symbol)) :: stack.tail)
+        _ = println(s"Added symbol: $symbol")
+    yield SymbolTable(stackFrame + (symbol.id -> symbol) :: stack.tail)
 
   def add(symbols: Seq[SymbolDescriptor]): Either[CompilerError, SymbolTable] =
     for stackFrame <- stack.headOption.toRight(CompilerError.InternalError("No stack frames."))
@@ -37,6 +40,7 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
                         stackFrame.get(symbolID).isEmpty,
                         (),
                         CompilerError.RedefinitionError(symbolID))
+        _ = println(s"Added symbols:\n${symbols.mkString("\n")}")
     yield SymbolTable(stackFrame + (symbolID -> symbols.toVector) :: stack.tail)
 
 sealed trait SymbolDescriptor { def id: String }
@@ -196,7 +200,8 @@ def genCards() =
       suit <- suitMap.values
   yield Card(rank, suit)
 
-def expandLet(baseCards: Seq[Card], letCards: Seq[Card]) = letCards.map(_ +: baseCards)
+def expandLet(baseCards: Seq[Card], letCards: Seq[Card]) =
+  letCards.view.map(_ +: baseCards).filter(isUnique(_)).toSeq
 
 def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerError, Seq[Seq[Card]]] =
   val idents    = sexpr.collect { case i: SExpr.Ident => i }
@@ -214,6 +219,10 @@ def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerEr
                                       case _ => Left(CompilerError.TypeError(Seq(GRLType.Card), None))
                          yield c,
                          letIds)
-      partExpanded  <- traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(baseCards, _), wildcards)
-      expandedCards =  partExpanded.flatten.flatMap(bc => letCards.flatMap(lc => expandLet(bc, lc)))
-  yield if wildcards.length + letIds.length > 0 then expandedCards else Seq(baseCards)
+      wildcardExpanded <- if wildcards.length > 0
+                          then traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(baseCards, _), wildcards)
+                          else Right(Seq(Seq(baseCards)))
+      fullyExpanded =  if letIds.length > 0
+                       then wildcardExpanded.flatten.flatMap(bc => letCards.flatMap(lc => expandLet(bc, lc)))
+                       else wildcardExpanded.flatten
+  yield fullyExpanded
