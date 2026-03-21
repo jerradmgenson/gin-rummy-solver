@@ -183,25 +183,27 @@ def traverse[T, U](decode: T => Either[CompilerError, U], idents: Seq[T]): Eithe
   }
   .map(_.reverse)
 
-def expandWildcard(cards: Seq[Card], wildcard: SExpr.Wildcard): Either[CompilerError, Seq[Seq[Card]]] = wildcard match
-  case SExpr.Wildcard(None)            => Right(genCards().view.map(_ +: cards).filter(isUnique(_)).toSeq)
+def expandWildcard(wildcard: SExpr.Wildcard): Either[CompilerError, Seq[Card]]= wildcard match
+  case SExpr.Wildcard(None)            => Right(genCards())
   case SExpr.Wildcard(Some(invariant)) =>
     val rank = Rank.fromChar(invariant)
     val suit = Suit.fromChar(invariant)
     (rank, suit) match
-      case (Right(r), Left(_)) => Right(genCards(r).view.map(_ +: cards).filter(isUnique(_)).toSeq)
-      case (Left(_), Right(s)) => Right(genCards(s).view.map(_ +: cards).filter(isUnique(_)).toSeq)
+      case (Right(r), Left(_)) => Right(genCards(r))
+      case (Left(_), Right(s)) => Right(genCards(s))
       case _                   => Left(CompilerError.ValueError(s"Invalid invariant: $invariant"))
 
-def genCards(rank: Rank) = suitMap.values.map(Card(rank, _))
-def genCards(suit: Suit) = rankMap.values.map(Card(_, suit))
-def genCards() =
+def genCards(rank: Rank) = suitMap.values.map(Card(rank, _)).toSeq
+def genCards(suit: Suit) = rankMap.values.map(Card(_, suit)).toSeq
+def genCards() = {
   for rank <- rankMap.values
       suit <- suitMap.values
   yield Card(rank, suit)
+}.toSeq
+
 
 def expandLet(baseCards: Seq[Card], letCards: Seq[Card]) =
-  letCards.view.map(_ +: baseCards).filter(isUnique(_)).toSeq
+  letCards.view.map(_ +: baseCards).filter(isUnique).toSeq
 
 def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerError, Seq[Seq[Card]]] =
   val idents    = sexpr.collect { case i: SExpr.Ident => i }
@@ -219,10 +221,15 @@ def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerEr
                                       case _ => Left(CompilerError.TypeError(Seq(GRLType.Card), None))
                          yield c,
                          letIds)
-      wildcardExpanded <- if wildcards.length > 0
-                          then traverse[SExpr.Wildcard, Seq[Seq[Card]]](expandWildcard(baseCards, _), wildcards)
-                          else Right(Seq(Seq(baseCards)))
-      fullyExpanded =  if letIds.length > 0
-                       then wildcardExpanded.flatten.flatMap(bc => letCards.flatMap(lc => expandLet(bc, lc)))
-                       else wildcardExpanded.flatten
-  yield fullyExpanded
+      wildcardExpanded <- traverse[SExpr.Wildcard, Seq[Card]](expandWildcard, wildcards)
+      fullyExpanded = genCardCombinations(baseCards, letCards ++ wildcardExpanded).view.filter(isUnique).map(_.toSet).toSet
+  yield fullyExpanded.map(_.toSeq).toSeq
+
+def genCardCombinations(baseCards: Seq[Card], varCards: Seq[Seq[Card]]) =
+  val varCombinations = varCards.foldLeft(Seq(Seq.empty[Card])) { (acc, cards) =>
+    for combo <- acc
+        card  <- cards
+    yield combo :+ card
+  }
+
+  varCombinations.map(baseCards ++ _)
