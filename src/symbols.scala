@@ -135,7 +135,8 @@ val suitMap = Map(
 val defaultStackFrame = Map(
   "hand"         -> SymbolDescriptor.Func("hand", funcHand),
   "discard-pile" -> SymbolDescriptor.Func("discard-pile", funcDiscardPile),
-  "let"          -> SymbolDescriptor.Func("let", funcLet)
+  "let"          -> SymbolDescriptor.Func("let", funcLet),
+  "score"        -> SymbolDescriptor.Func("score", funcScore)
 )
 
 // == Built-in Function Definitions ==
@@ -169,6 +170,16 @@ def funcLet(sexpr: Seq[SExpr], symbols: SymbolTable) =
                       CompilerError.ValueError(s"`let` contains duplicate cards: $cards"))
       newSymbols <- symbols.add(SymbolDescriptor.CardList(id, cards))
   yield (newSymbols, None)
+
+def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
+  case Seq(SExpr.Number(myScore), SExpr.Number(theirScore)) =>
+    symbols.add(SymbolDescriptor.Score("#score#", myScore, theirScore)) match
+      case Right(newSymbols) => Right((newSymbols, None))
+      case Left(compilerError) => Left(compilerError)
+  case _ =>
+    if sexpr.length != 2
+    then Left(CompilerError.ArityError("score", Seq(2), sexpr.length))
+    else Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
 
 // == Helper Functions ==
 // **********************
