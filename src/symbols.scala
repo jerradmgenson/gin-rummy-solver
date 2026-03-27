@@ -143,25 +143,24 @@ val defaultStackFrame = Map(
 // ***********************************
 
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  for cards       <- expandCardMacros(sexpr, symbols)
+  for _           <- checkFunctionArity("hand", sexpr, 10, Some(11))
+      cards       <- expandCardMacros(sexpr, symbols)
       hands       <- traverse[Seq[Card], SymbolDescriptor.Hand](Hand.apply(_), cards)
       newSymbols  <- symbols.add(hands)
   yield (newSymbols, None)
 
 def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  for cards       <- expandCardMacros(sexpr, symbols)
+  for _           <- checkFunctionArity("discard-pile", sexpr, 1, None)
+      cards       <- expandCardMacros(sexpr, symbols)
       discardSyms <- traverse[Seq[Card], SymbolDescriptor.CardList](CardList("#discard-pile#", _), cards)
       newSymbols  <- symbols.add(discardSyms)
   yield (newSymbols, None)
 
 def funcLet(sexpr: Seq[SExpr], symbols: SymbolTable) =
-  for idents     <- traverse[SExpr, SExpr.Ident](
+  for _          <- checkFunctionArity("let", sexpr, 2, None)
+      idents     <- traverse[SExpr, SExpr.Ident](
                       _ match { case i: SExpr.Ident => Right(i) case _ => Left(CompilerError.SyntaxError("Arguments to `let` must be identifiers."))},
                       sexpr)
-      _          <- Either.cond(
-                      sexpr.length >= 2,
-                      (),
-                      CompilerError.ArityError("let", Seq(2), sexpr.length))
       id         =  idents.head.name
       cards      <- traverse[SExpr.Ident, Card](Card.apply(_), idents.tail)
       _          <- Either.cond(
@@ -171,15 +170,15 @@ def funcLet(sexpr: Seq[SExpr], symbols: SymbolTable) =
       newSymbols <- symbols.add(SymbolDescriptor.CardList(id, cards))
   yield (newSymbols, None)
 
-def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
-  case Seq(SExpr.Number(myScore), SExpr.Number(theirScore)) =>
-    symbols.add(SymbolDescriptor.Score("#score#", myScore, theirScore)) match
-      case Right(newSymbols) => Right((newSymbols, None))
-      case Left(compilerError) => Left(compilerError)
-  case _ =>
-    if sexpr.length != 2
-    then Left(CompilerError.ArityError("score", Seq(2), sexpr.length))
-    else Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
+def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerError, (SymbolTable, None.type)] =
+  val arityCheck = checkFunctionArity("score", sexpr, 2)
+  (sexpr, arityCheck) match
+    case (_, Left(error)) => Left(error)
+    case (Seq(SExpr.Number(myScore), SExpr.Number(theirScore)), _) =>
+      symbols.add(SymbolDescriptor.Score("#score#", myScore, theirScore)) match
+        case Right(newSymbols) => Right((newSymbols, None))
+        case Left(compilerError) => Left(compilerError)
+    case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
 
 // == Helper Functions ==
 // **********************
@@ -244,3 +243,13 @@ def genCardCombinations(baseCards: Seq[Card], varCards: Seq[Seq[Card]]) =
   }
 
   varCombinations.map(baseCards ++ _)
+
+def checkFunctionArity(funcName: String, sexpr: Seq[SExpr], nargs: Int) =
+  Either.cond(sexpr.length == nargs, (), CompilerError.ArityError(funcName, Seq(nargs), sexpr.length))
+
+def checkFunctionArity(funcName: String, sexpr: Seq[SExpr], minArgs: Int, maxArgs: Option[Int]) = maxArgs match
+  case Some(upper) =>
+    val l = sexpr.length
+    Either.cond(l >= minArgs & l <= upper, (), CompilerError.ArityError(funcName, Seq(minArgs, upper), l))
+  case None =>
+    Either.cond(sexpr.length >= minArgs, (), CompilerError.ArityError(funcName, Seq(minArgs), sexpr.length))
