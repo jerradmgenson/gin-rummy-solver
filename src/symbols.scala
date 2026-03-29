@@ -25,15 +25,24 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
 
   def add(symbol: SymbolDescriptor): Either[CompilerError, SymbolTable] = stack.headOption match
     case None             => Left(CompilerError.InternalError("No stack frames."))
-    case Some(stackFrame) =>
-      println(s"Added symbol: $symbol")
-      Right(SymbolTable(stackFrame + (symbol.id -> symbol) :: stack.tail))
+    case Some(stackFrame) => stackFrame.get(symbol.id) match
+      case Some(oldSymbol: SymbolDescriptor) if builtInNames.contains(oldSymbol.id) =>
+        Left(CompilerError.RedefinitionError(symbol.id))
+      case _ =>
+        println(s"Added symbol: $symbol")
+        Right(SymbolTable(stackFrame + (symbol.id -> symbol) :: stack.tail))
 
   def add(symbols: Seq[SymbolDescriptor]): Either[CompilerError, SymbolTable] =
     for stackFrame <- stack.headOption.toRight(CompilerError.InternalError("No stack frames."))
         symbolID   <- Either.cond(symbols.length >= 1, symbols(0).id, CompilerError.InternalError("symbols must have length >= 1."))
         _          <- Either.cond(symbols.forall(_.id == symbolID), (), CompilerError.InternalError("All symbols must have the same id."))
-        _ = println(s"Added symbols:\n${symbols.mkString("\n")}")
+        oldSymbol  = stackFrame.get(symbolID) match { case Some(s: SymbolDescriptor) => Some(s) case _ => None }
+        _          <- Either.cond(
+          oldSymbol.map(s => !builtInNames.contains(s.id)).forall(identity),
+          (),
+          CompilerError.RedefinitionError(symbolID)
+        )
+        _          = println(s"Added symbols:\n${symbols.mkString("\n")}")
     yield SymbolTable(stackFrame + (symbolID -> symbols.toVector) :: stack.tail)
 
 sealed trait SymbolDescriptor { def id: String }
@@ -176,12 +185,15 @@ val configOptionDefaults = configOptions.collect {
   case (name, Some(v)) => (s"#$name#", SymbolDescriptor.ConfigOption(s"#$name#", v))
 }
 
-val defaultStackFrame = Map(
-  "hand"         -> SymbolDescriptor.Func("hand", funcHand, 10, Some(11)),
-  "discard-pile" -> SymbolDescriptor.Func("discard-pile", funcDiscardPile, 1, None),
-  "let"          -> SymbolDescriptor.Func("let", funcLet, 2, None),
-  "score"        -> SymbolDescriptor.Func("score", funcScore, 2),
-) ++ configOptionFuncs ++ configOptionDefaults
+val builtInFuncs = Seq(
+  SymbolDescriptor.Func("hand", funcHand, 10, Some(11)),
+  SymbolDescriptor.Func("discard-pile", funcDiscardPile, 1, None),
+  SymbolDescriptor.Func("let", funcLet, 2, None),
+  SymbolDescriptor.Func("score", funcScore, 2),
+).map(symbol => (symbol.id, symbol)).toMap
+
+val defaultStackFrame = builtInFuncs ++ configOptionFuncs ++ configOptionDefaults
+val builtInNames = (builtInFuncs ++ configOptionFuncs).keySet
 
 // == Built-in Function Definitions ==
 // ***********************************

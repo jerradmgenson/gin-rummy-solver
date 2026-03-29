@@ -8,7 +8,6 @@ enum CompilerError:
   case ValueError(desc: String)
   case UndefinedError(symbolName: String)
   case RedefinitionError(symbolName: String)
-  case KeywordError(keyword: String)
   case InternalError(desc: String)
 
   def description: String = this match
@@ -23,6 +22,5 @@ enum CompilerError:
         case None    => s"Incorrect type. Expected: $expectedStr"
     case ValueError(desc) => desc
     case UndefinedError(symbolName) => s"`$symbolName` is not defined."
-    case RedefinitionError(symbolName) => s"`$symbolName` is already defined."
-    case KeywordError(keyword) => s"Keyword `$keyword` can not be used as an identifier name."
+    case RedefinitionError(symbolName) => s"Can not redefine built-in name `$symbolName`."
     case InternalError(desc) => desc
