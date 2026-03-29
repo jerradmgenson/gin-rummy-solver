@@ -15,31 +15,24 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
     def aux(
         stack: SymbolStack
     ): Either[CompilerError.UndefinedError, Symbol] = stack.headOption match
-      case None => Left(CompilerError.UndefinedError(id))
+      case None             => Left(CompilerError.UndefinedError(id))
       case Some(stackFrame) => stackFrame.get(id) match
-        case None => aux(stack.tail)
+        case None         => aux(stack.tail)
         case Some(symbol) => Right(symbol)
     val symbol = aux(stack)
     println(s"Retrieved symbol: $symbol")
     symbol
 
-  def add(symbol: SymbolDescriptor): Either[CompilerError, SymbolTable] =
-    for stackFrame <- stack.headOption.toRight(CompilerError.InternalError("No stack frames."))
-        _          <- Either.cond(
-                        stackFrame.get(symbol.id).isEmpty,
-                        (),
-                        CompilerError.RedefinitionError(symbol.id))
-        _ = println(s"Added symbol: $symbol")
-    yield SymbolTable(stackFrame + (symbol.id -> symbol) :: stack.tail)
+  def add(symbol: SymbolDescriptor): Either[CompilerError, SymbolTable] = stack.headOption match
+    case None             => Left(CompilerError.InternalError("No stack frames."))
+    case Some(stackFrame) =>
+      println(s"Added symbol: $symbol")
+      Right(SymbolTable(stackFrame + (symbol.id -> symbol) :: stack.tail))
 
   def add(symbols: Seq[SymbolDescriptor]): Either[CompilerError, SymbolTable] =
     for stackFrame <- stack.headOption.toRight(CompilerError.InternalError("No stack frames."))
         symbolID   <- Either.cond(symbols.length >= 1, symbols(0).id, CompilerError.InternalError("symbols must have length >= 1."))
         _          <- Either.cond(symbols.forall(_.id == symbolID), (), CompilerError.InternalError("All symbols must have the same id."))
-        _          <- Either.cond(
-                        stackFrame.get(symbolID).isEmpty,
-                        (),
-                        CompilerError.RedefinitionError(symbolID))
         _ = println(s"Added symbols:\n${symbols.mkString("\n")}")
     yield SymbolTable(stackFrame + (symbolID -> symbols.toVector) :: stack.tail)
 
@@ -169,12 +162,26 @@ val suitMap = Map(
   'h' -> Suit.Hearts
 )
 
+val configOptions = Seq(
+  ("end-score", Some(100)),
+  ("gin", Some(20)),
+  ("big-gin", Some(20)),
+  ("undercut", Some(10)),
+  ("knock-threshold", Some(10)),
+  ("remaining-stock", None),
+)
+
+val configOptionFuncs = configOptions.map((name, _) => (name, configOption(name)))
+val configOptionDefaults = configOptions.collect {
+  case (name, Some(v)) => (s"#$name#", SymbolDescriptor.ConfigOption(s"#$name#", v))
+}
+
 val defaultStackFrame = Map(
   "hand"         -> SymbolDescriptor.Func("hand", funcHand, 10, Some(11)),
   "discard-pile" -> SymbolDescriptor.Func("discard-pile", funcDiscardPile, 1, None),
   "let"          -> SymbolDescriptor.Func("let", funcLet, 2, None),
-  "score"        -> SymbolDescriptor.Func("score", funcScore, 2)
-)
+  "score"        -> SymbolDescriptor.Func("score", funcScore, 2),
+) ++ configOptionFuncs ++ configOptionDefaults
 
 // == Built-in Function Definitions ==
 // ***********************************
@@ -204,12 +211,20 @@ def funcLet(sexpr: Seq[SExpr], symbols: SymbolTable) =
       newSymbols <- symbols.add(SymbolDescriptor.CardList(id, cards))
   yield (newSymbols, None)
 
-def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerError, (SymbolTable, None.type)] = sexpr match
+def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
   case Seq(SExpr.Number(myScore), SExpr.Number(theirScore)) =>
     symbols.add(SymbolDescriptor.Score("#score#", myScore, theirScore)) match
-      case Right(newSymbols) => Right((newSymbols, None))
+      case Right(newSymbols)   => Right((newSymbols, None))
       case Left(compilerError) => Left(compilerError)
   case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
+
+def configOption(optionName: String) =
+  val configFunc = (sexpr: Seq[SExpr], symbols: SymbolTable) => sexpr match
+    case Seq(SExpr.Number(endScore)) => symbols.add(SymbolDescriptor.ConfigOption(s"#$optionName#", endScore)) match
+      case Right(newSymbols)   => Right((newSymbols, None))
+      case Left(compilerError) => Left(compilerError)
+    case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
+  SymbolDescriptor.Func(optionName, configFunc, 1)
 
 // == Helper Functions ==
 // **********************
