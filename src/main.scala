@@ -1,3 +1,10 @@
+/*
+ * Main entry point for the Gin Rummy Language (GRL) compiler.
+ *
+ * Copyright 2026 Jerrad Michael Genson
+ * License: https://github.com/jerradmgenson/gin-rummy-solver/blob/main/LICENSE
+ */
+
 import fastparse._
 
 @main

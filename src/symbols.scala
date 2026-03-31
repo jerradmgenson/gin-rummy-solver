@@ -1,15 +1,65 @@
+/*
+ * Contains implementations of SymbolTable, SymbolDescriptor, built-in functions,
+ * and supporting classes, objects, and methods for Gin Rummy Language (GRL).
+ *
+ * Copyright 2026 Jerrad Michael Genson
+ * License: https://github.com/jerradmgenson/gin-rummy-solver/blob/main/LICENSE
+ */
+
 import scala.annotation.tailrec
 
+// ******************************
 // == Symbol Table Definitions ==
 // ******************************
 
+/** Represents the type of objects stored in the SymbolTable. */
 type Symbol = SymbolDescriptor | Vector[SymbolDescriptor]
+
+/** The main data structure used internally by the SymbolTable. */
 type SymbolStack = List[Map[String, Symbol]]
 
-class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
-):
+/**
+  * A symbol table implementation for managing variables, function definitions,
+  * and scope in GRL.
+  *
+  * Implemented as a stack of stack frames, where each stack frame contains the
+  * symbols defined in a certain scope in a GRL program. A complete description
+  * of these symbols is given by the SymbolDescriptor sealed trait and its
+  * case class.
+  *
+  * @param stack A SymbolStack to initialize the SymbolTable with.
+  *   This parameter is usually omitted when instantiating a SymbolTable.
+  */
+class SymbolTable(stack: SymbolStack = List(defaultStackFrame)):
+
+  /**
+    * Push a new stack frame onto the SymbolTable.
+    *
+    * A new stack frame should be created anytime a GRL program enters a new
+    * nested scope. When the GRL program exits the nested scope, the stack frame
+    * should be removed by calling SymbolTable.delFrame().
+    *
+    * @return A new SymbolTable object containing an additional stack frame.
+    */
   def addFrame() = SymbolTable(Map[String, Vector[SymbolDescriptor]]() :: stack)
-  def removeFrame() = SymbolTable(stack.tail)
+
+  /**
+    * Pop the stack frame at the top of SymbolTable off of the stack.
+    *
+    * @return Either a new SymbolTable object without the stack frame (Right)
+    *   or a CompilerError (Left).
+    */
+  def delFrame() = stack match
+    case _ :: tail => Right(SymbolTable(tail))
+    case _ => Left(CompilerError.InternalError("SymbolTable contains no stack frames to delete."))
+
+  /**
+    * Get a symbol from the SymbolTable.
+    *
+    * @param id The id attribute of the symbol to retrieve.
+    * @return Either the symbol (or vector of symbols) matching id (Right) or
+    *   a CompilerError (Left).
+    */
   def get(id: String) =
     @tailrec
     def aux(
@@ -23,6 +73,13 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
     println(s"Retrieved symbol: $symbol")
     symbol
 
+  /**
+    * Add a single symbol to the SymbolTable.
+    *
+    * @param symbol The symbol to add.
+    * @return Either a new SymbolTable with the added symbol (Right) or a
+    *   CompilerError (Left).
+    */
   def add(symbol: SymbolDescriptor): Either[CompilerError, SymbolTable] = stack.headOption match
     case None             => Left(CompilerError.InternalError("No stack frames."))
     case Some(stackFrame) => stackFrame.get(symbol.id) match
@@ -32,6 +89,17 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
         println(s"Added symbol: $symbol")
         Right(SymbolTable(stackFrame + (symbol.id -> symbol) :: stack.tail))
 
+  /**
+    * Add a sequence of symbols to the SymbolTable.
+    *
+    * All symbols must have the same id and be of the same time. When
+    * SymbolTable.get is called with this id, it will return all associated
+    * symbols as a Vector.
+    *
+    * @param symbols The sequence of symbols to add to the SymbolTable.
+    * @return Either a new SymbolTable with the added symbols (Right) or a
+    *   CompilerError (Left).
+    */
   def add(symbols: Seq[SymbolDescriptor]): Either[CompilerError, SymbolTable] =
     for stackFrame <- stack.headOption.toRight(CompilerError.InternalError("No stack frames."))
         symbolID   <- Either.cond(symbols.length >= 1, symbols(0).id, CompilerError.InternalError("symbols must have length >= 1."))
@@ -45,8 +113,23 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)
         _          = println(s"Added symbols:\n${symbols.mkString("\n")}")
     yield SymbolTable(stackFrame + (symbolID -> symbols.toVector) :: stack.tail)
 
+/** Represents an object that can be managed by the SymbolTable. */
 sealed trait SymbolDescriptor { def id: String }
+
+/** Namespace for the SymbolDescriptor variants. */
 object SymbolDescriptor:
+
+  /**
+    * Represents a general list of cards (such as a discard pile).
+    *
+    * @param id The symbol's name/id.
+    * @param cards Individual cards in the CardList.
+    * @param allowDuplicates Whether or not duplicate cards are allowed in
+    *  this CardList (default: false).
+    * @param minCards Minimum number of cards this CardList is allowed to have
+    *   (default: 1).
+    * @return Either a CardList (Right) or a CompilerError (Left).
+    */
   case class CardList(id: String, cards: Seq[Card]) extends SymbolDescriptor
   object CardList:
     def apply(
@@ -61,14 +144,56 @@ object SymbolDescriptor:
       then Left(CompilerError.ArityError(id, Seq(minCards), cards.length))
       else Right(CardList(id, cards))
 
+  /**
+    * Represents the game's current score.
+    * @param myScore The user's current score.
+    * @param theirScore The user's opponent's score.
+    */
   case class Score(id: String, myScore: Int, theirScore: Int) extends SymbolDescriptor
+  object Score:
+    val id = "#score#"
+    def apply(myScore: Int, theirScore: Int): Score = Score(id, myScore, theirScore)
+
+  /**
+    * Represents a configuration option for a Gin Rummy game.
+    *
+    * Some examples: knock threshold, end score, Gin value, etc.
+    *
+    * @param id The name/id of the ConfigOption.
+    * @param value The value of the ConfigOption.
+    */
   case class ConfigOption(id: String, value: Int) extends SymbolDescriptor
+
+  /**
+    * Represents a unique, abstract game state to be expanded and then
+    * evaluated by the solver.
+    *
+    * @param id The name/id of the Game.
+    */
   case class Game(id: String) extends SymbolDescriptor
-  case class Func private (id: String, func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[GameState])]) extends SymbolDescriptor
+
+  /**
+    * Represents a built-in GRL function.
+    *
+    * This SymbolDescriptor encodes the actual implementation of a GRL function.
+    * SymbolDescriptor.Func wraps the given func with arity-checking logic
+    * that runs everytime func is called.
+    *
+    * @param name The name/id of the Func.
+    * @param func A Scala function that implements the corresponding GRL function.
+    *   The function accepts a Seq of SExprs from the AST and a SymbolTable and
+    *   returns either a new SymbolTable and List of GameState Options (Right)
+    *   or a CompilerError (Left).
+    * @param nargs Exact number of arguments that the function should take
+    *   (its arity). If the function isn't called with this exact number of
+    *   arguments, it will return Left[CompilerError.ArityError].
+    * @return A new SymbolDescriptor.Func
+    */
+  case class Func private (id: String, func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[List[GameState]])]) extends SymbolDescriptor
   object Func:
     def apply(
       name: String,
-      func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[GameState])],
+      func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[List[GameState]])],
       nargs: Int
     ): Func =
       val arityCheckWrapper = (sexpr: Seq[SExpr], symbols: SymbolTable) =>
@@ -78,9 +203,23 @@ object SymbolDescriptor:
 
       Func(name, arityCheckWrapper)
 
+  /**
+    * @param name The name/id of the Func.
+    * @param func A Scala function that implements the corresponding GRL function.
+    *   The function accepts a Seq of SExprs from the AST and a SymbolTable and
+    *   returns either a new SymbolTable and List of GameState Options (Right)
+    *   or a CompilerError (Left).
+    * @param minArgs The minimum number of arguments that this function may accept.
+    *   If the function is called with fewer arguments, it will return
+    *   Left[CompilerError.ArityError].
+    * @param maxArgs The maximum number of argumnets that this function may accept.
+    *   If this is not None, and the function is called with a greater number of
+    *   arguments, it will return Left[CompilerError.ArityError].
+    * @return A new SymbolDescriptor.Func
+    */
     def apply(
       name: String,
-      func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[GameState])],
+      func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[List[GameState]])],
       minArgs: Int,
       maxArgs: Option[Int]
     ): Func =
@@ -97,6 +236,13 @@ object SymbolDescriptor:
 
       Func(name, arityCheckWrapper)
 
+  /**
+    * Represents a hand of cards in Gin Rummy.
+    *
+    * @param cards The Seq of Cards to construct the hand from. Must contain
+    *   exactly 10 or 11 cards.
+    * @return Either a new SymbolDescriptor.Hand (Right) or a CompilerError(Left).
+    */
   case class Hand(
     id: String,
     c1: Card,
@@ -111,6 +257,8 @@ object SymbolDescriptor:
     c10: Card,
     c11: Option[Card] = None
   ) extends SymbolDescriptor:
+
+    /** Convert this Hand to a List of Cards. */
     def toList: List[Card] =
       val cards = List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
       cards ++ c11.toList

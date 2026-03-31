@@ -1,3 +1,10 @@
+/*
+ * Defines GRL compile-time errors and types for the GRL language itself.
+ *
+ * Copyright 2026 Jerrad Michael Genson
+ * License: https://github.com/jerradmgenson/gin-rummy-solver/blob/main/LICENSE
+ */
+
 enum GRLType:
   case Card, Wildcard, Template, Integer, GameState, Function
 
