@@ -83,7 +83,7 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)):
   def add(symbol: SymbolDescriptor): Either[CompilerError, SymbolTable] = stack.headOption match
     case None             => Left(CompilerError.InternalError("No stack frames."))
     case Some(stackFrame) => stackFrame.get(symbol.id) match
-      case Some(oldSymbol: SymbolDescriptor) if builtInNames.contains(oldSymbol.id) =>
+      case Some(oldSymbol: SymbolDescriptor) if reservedWords.contains(oldSymbol.id) =>
         Left(CompilerError.RedefinitionError(symbol.id))
       case _ =>
         println(s"Added symbol: $symbol")
@@ -106,7 +106,7 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)):
         _          <- Either.cond(symbols.forall(_.id == symbolID), (), CompilerError.InternalError("All symbols must have the same id."))
         oldSymbol  = stackFrame.get(symbolID) match { case Some(s: SymbolDescriptor) => Some(s) case _ => None }
         _          <- Either.cond(
-          oldSymbol.map(s => !builtInNames.contains(s.id)).forall(identity),
+          oldSymbol.map(s => !reservedWords.contains(s.id)).forall(identity),
           (),
           CompilerError.RedefinitionError(symbolID)
         )
@@ -258,7 +258,7 @@ object SymbolDescriptor:
     c11: Option[Card] = None
   ) extends SymbolDescriptor:
 
-    /** Convert this Hand to a List of Cards. */
+    /** Convert Hand to a List of Cards. */
     def toList: List[Card] =
       val cards = List(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
       cards ++ c11.toList
@@ -272,6 +272,12 @@ object SymbolDescriptor:
         Right(Hand("#hand#", c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, Some(c11)))
       case _ => Left(CompilerError.ArityError("hand", Seq(10, 11), cards.length))
 
+/**
+  * Represents a single Card in a standard 52-card French-suited deck.
+  *
+  * @param ident An SExpr.Ident corresponding to a valid card in GRL notation.
+  * @return Either a Card object (Right) or a CompilerError (Left).
+  */
 case class Card(rank: Rank, suit: Suit)
 object Card:
   def apply(ident: SExpr.Ident): Either[CompilerError, Card] =
@@ -283,19 +289,37 @@ object Card:
          suit  <- Suit.fromChar(s)
     yield Card(rank, suit)
 
+/** Represents a card suit in a standard French-suited deck. */
 enum Suit:
   case Spades, Hearts, Diamonds, Clubs
 
 object Suit:
+  /**
+    * Instantiate a Suit object from a Char.
+    *
+    * @param s A Char representing a suit.
+    *   Valid Chars are 's', 'h', 'd', and 'c'.
+    * @return Either a Suit object (Right) or a CompilerError.ValueError (Left) if
+    *   an invalid Char is given.
+    */
   def fromChar(s: Char) = suitMap.get(s).toRight(CompilerError.ValueError(s"Invalid suit: $s"))
 
+/** Represents a card rank in a standard French-suited deck. */
 enum Rank:
-  case Ace, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten, Jack, Queen,
-    King
+  case Ace, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten, Jack, Queen, King
 
 object Rank:
+  /**
+    * Instantiate a Rank object from a Char.
+    *
+    * @param r A Char representing a rank.
+    *   Valid Chars are 'a', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'j', 'q', 'k'
+    * @return Either a Rank object (Right) or a CompilerError.ValueError (Left) if
+    *   an invalid Char is given.
+    */
   def fromChar(r: Char) = rankMap.get(r).toRight(CompilerError.ValueError(s"Invalid rank: $r"))
 
+// Map between Char and Rank.
 val rankMap = Map(
   'a' -> Rank.Ace,
   '2' -> Rank.Two,
@@ -312,6 +336,7 @@ val rankMap = Map(
   'k' -> Rank.King
 )
 
+// Map between Char and Suit.
 val suitMap = Map(
   's' -> Suit.Spades,
   'c' -> Suit.Clubs,
@@ -319,6 +344,7 @@ val suitMap = Map(
   'h' -> Suit.Hearts
 )
 
+// Valid GRL config options and their default values (if any).
 val configOptions = Seq(
   ("end-score", Some(100)),
   ("gin", Some(20)),
@@ -328,11 +354,16 @@ val configOptions = Seq(
   ("remaining-stock", None),
 )
 
+// Map configOptions to a Seq of (name, SymbolDescriptor.Func) tuples.
 val configOptionFuncs = configOptions.map((name, _) => (name, configOption(name)))
+
+// Map configOptions to a Seq of ("#$configOptionName#", SymbolDescriptor.ConfigOption) tuples.
+// Only configOptions with default values are included.
 val configOptionDefaults = configOptions.collect {
   case (name, Some(v)) => (s"#$name#", SymbolDescriptor.ConfigOption(s"#$name#", v))
 }
 
+// Contains all GRL built-in functions not in configOptions.
 val builtInFuncs = Seq(
   SymbolDescriptor.Func("hand", funcHand, 10, Some(11)),
   SymbolDescriptor.Func("discard-pile", funcDiscardPile, 1, None),
@@ -340,12 +371,31 @@ val builtInFuncs = Seq(
   SymbolDescriptor.Func("score", funcScore, 2),
 ).map(symbol => (symbol.id, symbol)).toMap
 
+// Root-level stack frame containing GRL built-in functions and default config options.
 val defaultStackFrame = builtInFuncs ++ configOptionFuncs ++ configOptionDefaults
-val builtInNames = (builtInFuncs ++ configOptionFuncs).keySet
 
-// == Built-in Function Definitions ==
-// ***********************************
+// Contains all reserved words in GRL.
+val reservedWords = (builtInFuncs ++ configOptionFuncs).keySet
 
+// ***************************************
+// == GRL Built-in Function Definitions ==
+// ***************************************
+
+/**
+  * Definition of GRL `hand` function.
+  *
+  * All GRL function definitions follow the same pattern, so it will only
+  * be documented once here. You can substitute whatever the function name is
+  * for `hand` in this docstring.
+  *
+  * @param sexpr Expressions passed to `hand`. These may be any type of SExpr.
+  *   The function is responsible for checking the subtype of SExpr.
+  * @param symbols Current state of the symbol table.
+  * @return A tuple with an updated copy of the symbol table containing any new
+  *   or deleted symbols or stack frames, and optionally a Seq of GameStates,
+  *   if this function generates any (`hand` doesn't generate GameStates, but
+  *   some functions do).
+  */
 def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
   for cards       <- expandCardMacros(sexpr, symbols)
       hands       <- traverse[Seq[Card], SymbolDescriptor.Hand](SymbolDescriptor.Hand(_), cards)
@@ -375,9 +425,22 @@ def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
   case Seq(SExpr.Number(myScore), SExpr.Number(theirScore)) =>
     symbols.add(SymbolDescriptor.Score("#score#", myScore, theirScore)) match
       case Right(newSymbols)   => Right((newSymbols, None))
-      case Left(compilerError) => Left(compilerError)
-  case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
+      case Left(compilerError) => Left(compilerError)  case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
 
+/**
+  * Create a built-in function for a GRL configuration option.
+  *
+  * This function is a bit different from the other GRL built-ins. It's not a
+  * GRL function itself, but a convenience method for generating GRL functions
+  * for config options. In GRL, a config option is a function that takes
+  * exactly one numeric argument corresponding to a particular configuration of
+  * Gin Rummy (e.g. knock-threshold) and adds it to the symbol table.
+  *
+  * @param optionName The name of the GRL configuration option
+  *   (e.g. `knock-threshold` or `gin`).
+  *
+  * @return A GRL built-in function for a config option.
+  */
 def configOption(optionName: String) =
   val configFunc = (sexpr: Seq[SExpr], symbols: SymbolTable) => sexpr match
     case Seq(SExpr.Number(endScore)) => symbols.add(SymbolDescriptor.ConfigOption(s"#$optionName#", endScore)) match
@@ -386,11 +449,28 @@ def configOption(optionName: String) =
     case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
   SymbolDescriptor.Func(optionName, configFunc, 1)
 
+// **********************
 // == Helper Functions ==
 // **********************
 
+/** Returns true if all items in `s` are unique; returns false otherwise. */
 def isUnique[T](s: Seq[T]) = s.length == s.distinct.length
 
+/**
+  * Traverse a Seq and apply a function to every item to decode it.
+  *
+  * This implementation of traverse is designed around a decoder that returns
+  * either a value of type U (Right) or a CompilerError (Left). The traverse
+  * function itself works in the usual way by returning either a Seq of type U
+  * (Right) or a CompilerError (Left), same as `decode`.
+  *
+  * @tparam T Type of the values to decode from (i.e. the `idents` Seq).
+  * @tparam U Type of the values to decode to (i.e. the return Seq).
+  * @param decode A function that can decode the `idents` Seq. Takes a value of
+  *   type T and returns Either a value of type U (Right) or a CompilerError (Left).
+  * @param idents A Seq of type T to decode.
+  * @return Either a Seq of decoded values of type U (Right) or a CompilerError (Left).
+  */
 def traverse[T, U](decode: T => Either[CompilerError, U], idents: Seq[T]): Either[CompilerError, Seq[U]] =
   idents.foldLeft[Either[CompilerError, Seq[U]]](Right(Seq.empty)) { (accEither, ident) =>
     for acc          <- accEither
@@ -399,7 +479,14 @@ def traverse[T, U](decode: T => Either[CompilerError, U], idents: Seq[T]): Eithe
   }
   .map(_.reverse)
 
-def expandWildcard(wildcard: SExpr.Wildcard): Either[CompilerError, Seq[Card]]= wildcard match
+/**
+  * Maps a wildcard s-expression onto a Seq of Cards.
+  *
+  * @param wildcard An s-expression representing a range of possible cards.
+  *   Ex: *, *s, k*, etc
+  * @return Either a Seq of Cards (Right) or a CompilerError (Left).
+  */
+def expandWildcard(wildcard: SExpr.Wildcard): Either[CompilerError, Seq[Card]] = wildcard match
   case SExpr.Wildcard(None)            => Right(genCards())
   case SExpr.Wildcard(Some(invariant)) =>
     val rank = Rank.fromChar(invariant)
@@ -409,18 +496,50 @@ def expandWildcard(wildcard: SExpr.Wildcard): Either[CompilerError, Seq[Card]]= 
       case (Left(_), Right(s)) => Right(genCards(s))
       case _                   => Left(CompilerError.ValueError(s"Invalid invariant: $invariant"))
 
+/** Return all possible cards with the given rank. */
 def genCards(rank: Rank) = suitMap.values.map(Card(rank, _)).toSeq
+
+/** Return all possible cards with the given suit. */
 def genCards(suit: Suit) = rankMap.values.map(Card(_, suit)).toSeq
+
+/** Return all possible cards with any rank and suit. */
 def genCards() = {
   for rank <- rankMap.values
       suit <- suitMap.values
   yield Card(rank, suit)
 }.toSeq
 
-
+/**
+  * Expand a Seq of base Cards using a let expression.
+  *
+  * Expasion proceeds by generating new Seqs of Cards, where each Seq contains
+  * one of the Cards from the let expression.
+  *
+  * @param baseCards A base Seq of Cards to expand with a let expression.
+  * @param letCards Cards in the let expression to expand `baseCards` with.
+  * @return A Seq of Card Seqs, where each Card Seq contains exactly one card
+  *   in the let expression.
+  */
 def expandLet(baseCards: Seq[Card], letCards: Seq[Card]) =
   letCards.view.map(_ +: baseCards).filter(isUnique).toSeq
 
+/**
+  * Perform all applicable macro expands on the given s-expression.
+  *
+  * Applicable macro expansions include both wildcards and let expressions. All
+  * valid combinations of cards indicated by base cards, wildcards, and let
+  * identifiers will be generated. Invalid combinations (where the Seq contains
+  * duplicate cards) will be skipped.
+  *
+  * @param sexpr The Seq of s-expressions to apply macro expansion to. Items in
+  *   `sexpr` can either be an Ident corresponding to a Card, an Ident
+  *   corresponding to a let expression, or a wildcard. Any other type of
+  *   s-expression will result in a CompilerError.
+  * @param symbols An instance of SymbolTable containing the current state of
+  *   the table. Used to resolve let expression identifiers.
+  * @return Either a Seq of Card Seqs (Right), where each Card Seq corresponds
+  *   to one of the macro expansions, or a CompilerError (Left).
+  */
 def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerError, Seq[Seq[Card]]] =
   val idents    = sexpr.collect { case i: SExpr.Ident => i }
   val wildcards = sexpr.collect { case w: SExpr.Wildcard => w }
@@ -441,6 +560,18 @@ def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerEr
       fullyExpanded = genCardCombinations(baseCards, letCards ++ wildcardExpanded).view.filter(isUnique).map(_.toSet).toSet
   yield fullyExpanded.map(_.toSeq).toSeq
 
+/**
+  * Generate all possible combinations of the given baseCards and varCards.
+  *
+  * Each combination will contain all cards from baseCards, and one card from
+  * each Seq in varCards. Both valid and invalid combinations will be generated;
+  * invalid combinations must be filtered out by the caller (if necessary).
+  *
+  * @param baseCards A case Seq of Cards to include in every combination.
+  * @param varCards A Seq of Card Seqs to generate combinations from. For every
+  *   combination, one card will be taken from each Card Seq.
+  * @return Every possible combination of cards for the given `baseCards` and `varCards`.
+  */
 def genCardCombinations(baseCards: Seq[Card], varCards: Seq[Seq[Card]]) =
   val varCombinations = varCards.foldLeft(Seq(Seq.empty[Card])) { (acc, cards) =>
     for combo <- acc
