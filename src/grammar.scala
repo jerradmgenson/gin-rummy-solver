@@ -27,13 +27,14 @@ def slist[$: P]: P[SExpr.SList] =
   P("(" ~/ sexpr.rep ~/ ")").map(SExpr.SList(_))
 
 /** Non-terminal: represents an atom. */
-def atom[$: P] = P((wildcard | number | ident) ~~/ &(whitespace | "(" | ")" | End))
+def atom[$: P] = P((wildcard | ident | number) ~~/ &(whitespace | "(" | ")" | End))
 
 /** Terminal: represents an identifier. */
 def ident[$: P] = P(
   (CharIn("_$\\-") | alphanumeric)
     .repX(1)
     .!
+    .filter(_.toIntOption.isEmpty)
     .map(SExpr.Ident(_))
 )
 
