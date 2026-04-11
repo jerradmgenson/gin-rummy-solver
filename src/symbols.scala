@@ -189,11 +189,11 @@ object SymbolDescriptor:
     *   arguments, it will return Left[CompilerError.ArityError].
     * @return A new SymbolDescriptor.Func
     */
-  case class Func private (id: String, func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[List[GameState]])]) extends SymbolDescriptor
+  case class Func private (id: String, func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, List[GameState])]) extends SymbolDescriptor
   object Func:
     def apply(
       name: String,
-      func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[List[GameState]])],
+      func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, List[GameState])],
       nargs: Int
     ): Func =
       val arityCheckWrapper = (sexpr: Seq[SExpr], symbols: SymbolTable) =>
@@ -219,7 +219,7 @@ object SymbolDescriptor:
     */
     def apply(
       name: String,
-      func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, Option[List[GameState]])],
+      func: (Seq[SExpr], SymbolTable) => Either[CompilerError, (SymbolTable, List[GameState])],
       minArgs: Int,
       maxArgs: Option[Int]
     ): Func =
@@ -400,13 +400,13 @@ def funcHand(sexpr: Seq[SExpr], symbols: SymbolTable) =
   for cards       <- expandCardMacros(sexpr, symbols)
       hands       <- traverse[Seq[Card], SymbolDescriptor.Hand](SymbolDescriptor.Hand(_), cards)
       newSymbols  <- symbols.add(hands)
-  yield (newSymbols, None)
+  yield (newSymbols, List.empty)
 
 def funcDiscardPile(sexpr: Seq[SExpr], symbols: SymbolTable) =
   for cards       <- expandCardMacros(sexpr, symbols)
       discardSyms <- traverse[Seq[Card], SymbolDescriptor.CardList](SymbolDescriptor.CardList("#discard-pile#", _), cards)
       newSymbols  <- symbols.add(discardSyms)
-  yield (newSymbols, None)
+  yield (newSymbols, List.empty)
 
 def funcLet(sexpr: Seq[SExpr], symbols: SymbolTable) =
   for idents     <- traverse[SExpr, SExpr.Ident](
@@ -419,12 +419,12 @@ def funcLet(sexpr: Seq[SExpr], symbols: SymbolTable) =
                       (),
                       CompilerError.ValueError(s"`let` contains duplicate cards: $cards"))
       newSymbols <- symbols.add(SymbolDescriptor.CardList(id, cards))
-  yield (newSymbols, None)
+  yield (newSymbols, List.empty)
 
 def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
   case Seq(SExpr.Number(myScore), SExpr.Number(theirScore)) =>
     symbols.add(SymbolDescriptor.Score("#score#", myScore, theirScore)) match
-      case Right(newSymbols)   => Right((newSymbols, None))
+      case Right(newSymbols)   => Right((newSymbols, List.empty))
       case Left(compilerError) => Left(compilerError)  case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
 
 /**
@@ -444,7 +444,7 @@ def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
 def configOption(optionName: String) =
   val configFunc = (sexpr: Seq[SExpr], symbols: SymbolTable) => sexpr match
     case Seq(SExpr.Number(endScore)) => symbols.add(SymbolDescriptor.ConfigOption(s"#$optionName#", endScore)) match
-      case Right(newSymbols)   => Right((newSymbols, None))
+      case Right(newSymbols)   => Right((newSymbols, List.empty))
       case Left(compilerError) => Left(compilerError)
     case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
   SymbolDescriptor.Func(optionName, configFunc, 1)
@@ -524,7 +524,7 @@ def expandLet(baseCards: Seq[Card], letCards: Seq[Card]) =
   letCards.view.map(_ +: baseCards).filter(isUnique).toSeq
 
 /**
-  * Perform all applicable macro expands on the given s-expression.
+  * Perform all applicable macro expansions on the given s-expression.
   *
   * Applicable macro expansions include both wildcards and let expressions. All
   * valid combinations of cards indicated by base cards, wildcards, and let
