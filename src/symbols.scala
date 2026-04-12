@@ -36,8 +36,7 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)):
     * Push a new stack frame onto the SymbolTable.
     *
     * A new stack frame should be created anytime a GRL program enters a new
-    * nested scope. When the GRL program exits the nested scope, the stack frame
-    * should be removed by calling SymbolTable.delFrame().
+    * nested scope.
     *
     * @param gameName Name of the game corresponding to this stack frame.
     * @return A new SymbolTable object containing an additional stack frame.
@@ -46,16 +45,6 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)):
     println(s"Added new stack frame '$gameName'")
     val stackFrame = Map("#game#" -> Vector(SymbolDescriptor.Game(gameName)))
     SymbolTable(stackFrame :: stack)
-
-  /**
-    * Pop the stack frame at the top of SymbolTable off of the stack.
-    *
-    * @return Either a new SymbolTable object without the stack frame (Right)
-    *   or a CompilerError (Left).
-    */
-  def delFrame() = stack match
-    case _ :: tail => Right(SymbolTable(tail))
-    case _ => Left(CompilerError.InternalError("SymbolTable contains no stack frames to delete."))
 
   /**
     * Get a symbol from the SymbolTable.
