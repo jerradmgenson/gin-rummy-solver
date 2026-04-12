@@ -39,9 +39,13 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)):
     * nested scope. When the GRL program exits the nested scope, the stack frame
     * should be removed by calling SymbolTable.delFrame().
     *
+    * @param gameName Name of the game corresponding to this stack frame.
     * @return A new SymbolTable object containing an additional stack frame.
     */
-  def addFrame() = SymbolTable(Map[String, Vector[SymbolDescriptor]]() :: stack)
+  def addFrame(gameName: String) =
+    println(s"Added new stack frame '$gameName'")
+    val stackFrame = Map("#game#" -> Vector(SymbolDescriptor.Game(gameName)))
+    SymbolTable(stackFrame :: stack)
 
   /**
     * Pop the stack frame at the top of SymbolTable off of the stack.
@@ -369,10 +373,15 @@ val builtInFuncs = Seq(
   SymbolDescriptor.Func("discard-pile", funcDiscardPile, 1, None),
   SymbolDescriptor.Func("let", funcLet, 2, None),
   SymbolDescriptor.Func("score", funcScore, 2),
+  SymbolDescriptor.Func("game", funcGame, 1, None)
 ).map(symbol => (symbol.id, Vector(symbol))).toMap
 
 // Root-level stack frame containing GRL built-in functions and default config options.
-val defaultStackFrame: Map[String, Symbol] = builtInFuncs ++ configOptionFuncs ++ configOptionDefaults
+val defaultStackFrame: Map[String, Symbol] =
+  builtInFuncs
+  ++ configOptionFuncs
+  ++ configOptionDefaults
+  ++ Map("#game#" -> Vector(SymbolDescriptor.Game("root")))
 
 // Contains all reserved words in GRL.
 val reservedWords = (builtInFuncs ++ configOptionFuncs).keySet
@@ -426,6 +435,13 @@ def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
     symbols.add(SymbolDescriptor.Score("#score#", myScore, theirScore)) match
       case Right(newSymbols)   => Right((newSymbols, List.empty))
       case Left(compilerError) => Left(compilerError)
+
+def funcGame(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
+	case SExpr.Ident(gameName) +: tail => evaluateProgram(tail, symbols.addFrame(gameName)) match
+	  case Left(error)       => Left(error)
+	  case Right(gameStates) => Right((symbols, gameStates))
+	case _ => Left(CompilerError.SyntaxError("`game` must be followed by an identifier"))
+
 
 /**
   * Create a built-in function for a GRL configuration option.

@@ -18,7 +18,7 @@ def evaluateProgram(
   case SExpr.SList(sexpr) +: tail =>
     evaluateSList(sexpr, symbols) match
       case Right(newSymbols, newGameState) => evaluateProgram(tail, newSymbols, gameStates ++ newGameState)
-      case Left(s) => Left(s)
+      case Left(error) => Left(error)
   case _ => Left(CompilerError.SyntaxError(s"Expected S-expression list but found ${program.head}"))
 
 def evaluateSList(sexpr: Seq[SExpr], symbols: SymbolTable) =
