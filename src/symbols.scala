@@ -13,7 +13,7 @@ import scala.annotation.tailrec
 // ******************************
 
 /** Represents the type of objects stored in the SymbolTable. */
-type Symbol = SymbolDescriptor | Vector[SymbolDescriptor]
+type Symbol = Vector[SymbolDescriptor]
 
 /** The main data structure used internally by the SymbolTable. */
 type SymbolStack = List[Map[String, Symbol]]
@@ -87,7 +87,7 @@ class SymbolTable(stack: SymbolStack = List(defaultStackFrame)):
         Left(CompilerError.RedefinitionError(symbol.id))
       case _ =>
         println(s"Added symbol: $symbol")
-        Right(SymbolTable(stackFrame + (symbol.id -> symbol) :: stack.tail))
+        Right(SymbolTable(stackFrame + (symbol.id -> Vector(symbol)) :: stack.tail))
 
   /**
     * Add a sequence of symbols to the SymbolTable.
@@ -360,7 +360,7 @@ val configOptionFuncs = configOptions.map((name, _) => (name, configOption(name)
 // Map configOptions to a Seq of ("#$configOptionName#", SymbolDescriptor.ConfigOption) tuples.
 // Only configOptions with default values are included.
 val configOptionDefaults = configOptions.collect {
-  case (name, Some(v)) => (s"#$name#", SymbolDescriptor.ConfigOption(s"#$name#", v))
+  case (name, Some(v)) => (s"#$name#", Vector(SymbolDescriptor.ConfigOption(s"#$name#", v)))
 }
 
 // Contains all GRL built-in functions not in configOptions.
@@ -369,10 +369,10 @@ val builtInFuncs = Seq(
   SymbolDescriptor.Func("discard-pile", funcDiscardPile, 1, None),
   SymbolDescriptor.Func("let", funcLet, 2, None),
   SymbolDescriptor.Func("score", funcScore, 2),
-).map(symbol => (symbol.id, symbol)).toMap
+).map(symbol => (symbol.id, Vector(symbol))).toMap
 
 // Root-level stack frame containing GRL built-in functions and default config options.
-val defaultStackFrame = builtInFuncs ++ configOptionFuncs ++ configOptionDefaults
+val defaultStackFrame: Map[String, Symbol] = builtInFuncs ++ configOptionFuncs ++ configOptionDefaults
 
 // Contains all reserved words in GRL.
 val reservedWords = (builtInFuncs ++ configOptionFuncs).keySet
@@ -425,7 +425,7 @@ def funcScore(sexpr: Seq[SExpr], symbols: SymbolTable) = sexpr match
   case Seq(SExpr.Number(myScore), SExpr.Number(theirScore)) =>
     symbols.add(SymbolDescriptor.Score("#score#", myScore, theirScore)) match
       case Right(newSymbols)   => Right((newSymbols, List.empty))
-      case Left(compilerError) => Left(compilerError)  case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
+      case Left(compilerError) => Left(compilerError)
 
 /**
   * Create a built-in function for a GRL configuration option.
@@ -447,7 +447,7 @@ def configOption(optionName: String) =
       case Right(newSymbols)   => Right((newSymbols, List.empty))
       case Left(compilerError) => Left(compilerError)
     case _ => Left(CompilerError.TypeError(Seq(GRLType.Integer), None))
-  SymbolDescriptor.Func(optionName, configFunc, 1)
+  Vector(SymbolDescriptor.Func(optionName, configFunc, 1))
 
 // **********************
 // == Helper Functions ==
@@ -552,7 +552,7 @@ def expandCardMacros(sexpr: Seq[SExpr], symbols: SymbolTable): Either[CompilerEr
       letCards      <- traverse[SExpr.Ident, Seq[Card]](i =>
                          for s <- symbols.get(i.name)
                              c <- s match
-                                      case SymbolDescriptor.CardList(_, c) => Right(c)
+                                      case Vector(SymbolDescriptor.CardList(_, c)) => Right(c)
                                       case _ => Left(CompilerError.TypeError(Seq(GRLType.Card), None))
                          yield c,
                          letIds)

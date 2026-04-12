@@ -30,7 +30,7 @@ def evaluateSList(sexpr: Seq[SExpr], symbols: SymbolTable) =
 def evaluateCall(funcName: String, args: Seq[SExpr], symbols: SymbolTable) =
   for symbol <- symbols.get(funcName)
       func   <- symbol match
-                  case SymbolDescriptor.Func(_, func) => Right(func)
+                  case Vector(SymbolDescriptor.Func(_, func)) => Right(func)
                   case _                              => Left(CompilerError.ValueError(s"$funcName is not a function."))
       (newSymbols, newGameState) <- func(args, symbols)
   yield (newSymbols, newGameState)
